@@ -1,18 +1,19 @@
 /**
- * mathengine.js - Core Mathematical and Graphical Computation Engine
+ * mathengine.js - Core Mathematical, Vector, List & Graphical Computation Engine
  */
 
-/** APP STATE **/
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
 
 export const state = {
   webglEnabled: false,
   gridStyle: 'square',
   expressions: [
-    { id: 1, raw: "y = x^2 - 4", active: true, color: palette[0] },
-    { id: 2, raw: "integral(x, 1, 3)", active: true, color: palette[1] },
-    { id: 3, raw: "vector(4, 3)", active: true, color: palette[2] }
+    { id: 1, raw: "f(x) = sin(x)", active: true, color: palette[0] },
+    { id: 2, raw: "y = f(x) + 1", active: true, color: palette[1] },
+    { id: 3, raw: "vector(1, 3) + vector(2, 5)", active: true, color: palette[2] },
+    { id: 4, raw: "list{1, 2, 3} ∪ list{3, 4, 5}", active: true, color: palette[3] }
   ],
+  userFunctions: {}, // Stores parsed custom definitions like f(x)
   centerX: 0,
   centerY: 0,
   zoomScale: 10
@@ -20,9 +21,6 @@ export const state = {
 
 export let canvas2d, ctx2d, canvasWebgl, gl;
 
-/**
- * Initializes canvas elements and viewport bindings
- */
 export function initEngine() {
   canvas2d = document.getElementById('graphCanvas');
   ctx2d = canvas2d.getContext('2d');
@@ -31,10 +29,15 @@ export function initEngine() {
 }
 
 /**
- * Keyword Pre-Processing (Symbol replacement & aliases)
+ * Pre-processes keywords and symbols (Unions, Intersections, Products, Integrals, Sums)
  */
 export function preprocessKeywords(input) {
   let str = input;
+  str = str.replace(/\bunion\b/g, '∪');
+  str = str.replace(/\b(intersection|intersect)\b/g, '∩');
+  str = str.replace(/\b(doublesum|sum2|summation2)\b/g, '∑∑');
+  str = str.replace(/\bdot\b/g, '·');
+  str = str.replace(/\bcross\b/g, '×');
   str = str.replace(/\bnotequal\b/g, '≠');
   str = str.replace(/\binfinity\b/g, '∞');
   str = str.replace(/\b(doubleintegral|integral2)\b/g, '∬');
@@ -46,8 +49,20 @@ export function preprocessKeywords(input) {
 }
 
 /**
- * Calculates current coordinate boundaries
+ * Replaces user-defined function calls (e.g. f(x)) with their parsed math expressions
  */
+export function substituteUserFunctions(exprStr) {
+  let result = exprStr;
+  for (const [funcName, body] of Object.entries(state.userFunctions)) {
+    // Matches patterns like f(...) and expands them safely
+    const regex = new RegExp(`\\b${funcName}\\s*\\(([^)]+)\\)`, 'g');
+    result = result.replace(regex, (_, arg) => {
+      return `(${body.replace(/\bx\b/g, `(${arg})`)})`;
+    });
+  }
+  return result;
+}
+
 export function getViewportBounds() {
   const w = canvas2d.width;
   const h = canvas2d.height;
@@ -64,9 +79,6 @@ export function getViewportBounds() {
   };
 }
 
-/**
- * Dynamic Tick Step Calculation
- */
 export function calculateDynamicStep(scale) {
   const minPixelSpacing = 60;
   const rawStep = minPixelSpacing / scale;
@@ -78,103 +90,101 @@ export function calculateDynamicStep(scale) {
 }
 
 /**
- * Solves single-variable linear equations (Ax + B = Cx + D)
+ * Parses and updates custom user function definitions (e.g. f(x) = sin(x))
  */
-export function solveLinearEquation(input) {
-  const parts = input.split('=').map(s => s.trim());
-  if (parts.length !== 2) throw new Error("Invalid equation structure");
-
-  const varMatch = input.match(/[a-zA-Z]/);
-  const varChar = varMatch ? varMatch[0] : 'x';
-
-  function parseLinearSide(exprStr) {
-    let expr = exprStr.replace(/\s+/g, '');
-    expr = expr.replace(new RegExp(`(?<=[+-]|^)${varChar}`, 'g'), `1${varChar}`);
-    expr = expr.replace(new RegExp(`(?<=[+-]|^)-${varChar}`, 'g'), `-1${varChar}`);
-
-    const tokens = expr.match(/[+-]?[^+-]+/g) || [];
-    let coeff = 0;
-    let constant = 0;
-
-    for (const token of tokens) {
-      if (token.includes(varChar)) {
-        const val = parseFloat(token.replace(varChar, ''));
-        coeff += isNaN(val) ? 1 : val;
-      } else {
-        const val = parseFloat(token);
-        if (!isNaN(val)) constant += val;
-      }
+export function registerUserFunctions() {
+  state.userFunctions = {};
+  state.expressions.forEach(expr => {
+    if (!expr.active || !expr.raw.trim()) return;
+    const processed = preprocessKeywords(expr.raw.trim());
+    const funcDefMatch = processed.match(/^([a-zA-Z])\s*\(\s*x\s*\)\s*=\s*(.*)$/);
+    if (funcDefMatch) {
+      const name = funcDefMatch[1];
+      const body = funcDefMatch[2].trim();
+      state.userFunctions[name] = body;
     }
-    return { coeff, constant };
-  }
-
-  const left = parseLinearSide(parts[0]);
-  const right = parseLinearSide(parts[1]);
-
-  const netCoeff = left.coeff - right.coeff;
-  const netConst = right.constant - left.constant;
-
-  if (Math.abs(netCoeff) < 1e-12) {
-    if (Math.abs(netConst) < 1e-12) return { varName: varChar, value: "Infinite solutions" };
-    return { varName: varChar, value: "No solution" };
-  }
-
-  const xVal = netConst / netCoeff;
-  return { 
-    varName: varChar, 
-    value: Number.isInteger(xVal) ? xVal : parseFloat(xVal.toFixed(6)) 
-  };
+  });
 }
 
 /**
- * Numerical Integration (Simpson's 1/3 Rule with Trapezoidal Fallback)
+ * Advanced Vector & List Arithmetic Evaluator
  */
-export function integrateNumerical(funcExpr, a, b, n = 100) {
-  if (n % 2 !== 0) n += 1;
-  const h = (b - a) / n;
+export function evaluateVectorOrListExpr(input) {
+  let expr = preprocessKeywords(input);
 
-  const f = (xVal) => {
-    try {
-      return math.evaluate(funcExpr, { x: xVal });
-    } catch (e) {
-      return NaN;
+  // Parse lists: list{1, 2, 3}
+  expr = expr.replace(/list\s*\{([^}]+)\}/g, (_, items) => {
+    const arr = items.split(',').map(x => math.evaluate(x.trim()));
+    return `[${arr.join(',')}]`;
+  });
+
+  // Parse vectors: vector(1, 2) or vector(1, 2, 3)
+  expr = expr.replace(/vector\s*\(([^)]+)\)/g, (_, items) => {
+    const arr = items.split(',').map(x => math.evaluate(x.trim()));
+    return `[${arr.join(',')}]`;
+  });
+
+  // Set Union (∪) handling
+  if (expr.includes('∪')) {
+    const parts = expr.split('∪').map(p => math.evaluate(substituteUserFunctions(p.trim())));
+    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+      const unionSet = Array.from(new Set([...parts[0], ...parts[1]]));
+      return { type: 'list', value: unionSet };
     }
-  };
-
-  let sum = f(a) + f(b);
-
-  for (let i = 1; i < n; i++) {
-    const x = a + i * h;
-    const weight = i % 2 === 0 ? 2 : 4;
-    const fx = f(x);
-    if (isNaN(fx)) return integrateTrapezoidal(f, a, b, n);
-    sum += weight * fx;
   }
 
-  const result = (h / 3) * sum;
-  return Number.isInteger(result) ? result : parseFloat(result.toFixed(6));
-}
-
-function integrateTrapezoidal(f, a, b, n) {
-  const h = (b - a) / n;
-  let sum = 0.5 * (f(a) + f(b));
-  for (let i = 1; i < n; i++) {
-    sum += f(a + i * h);
+  // Set Intersection (∩) handling
+  if (expr.includes('∩')) {
+    const parts = expr.split('∩').map(p => math.evaluate(substituteUserFunctions(p.trim())));
+    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+      const intersectSet = parts[0].filter(x => parts[1].includes(x));
+      return { type: 'list', value: Array.from(new Set(intersectSet)) };
+    }
   }
-  return parseFloat((sum * h).toFixed(6));
+
+  // Vector Dot Product (·)
+  if (expr.includes('·')) {
+    const parts = expr.split('·').map(p => math.evaluate(substituteUserFunctions(p.trim())));
+    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+      const dotProduct = parts[0].reduce((sum, val, idx) => sum + val * (parts[1][idx] || 0), 0);
+      return { type: 'scalar', value: dotProduct };
+    }
+  }
+
+  // Vector Cross Product (×)
+  if (expr.includes('×')) {
+    const parts = expr.split('×').map(p => math.evaluate(substituteUserFunctions(p.trim())));
+    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+      const v1 = parts[0], v2 = parts[1];
+      if (v1.length === 2) v1.push(0);
+      if (v2.length === 2) v2.push(0);
+      const cross = [
+        v1[1] * v2[2] - v1[2] * v2[1],
+        v1[2] * v2[0] - v1[0] * v2[2],
+        v1[0] * v2[1] - v1[1] * v2[0]
+      ];
+      return { type: 'vector', value: cross };
+    }
+  }
+
+  // Standard matrix/vector addition, subtraction, or scalar multiplication
+  try {
+    const evaluated = math.evaluate(expr);
+    if (Array.isArray(evaluated) || (evaluated && evaluated.isMatrix)) {
+      const arr = evaluated.isMatrix ? evaluated.toArray() : evaluated;
+      return { type: 'vector', value: arr };
+    }
+  } catch(e) {}
+
+  return null;
 }
 
-/**
- * Core Render Pipeline
- */
 export function draw() {
+  registerUserFunctions();
   drawGridAndAxes();
   drawExpressions();
 }
 
-/**
- * Grid Rendering with Dynamic Numeric Labels
- */
 export function drawGridAndAxes() {
   ctx2d.clearRect(0, 0, canvas2d.width, canvas2d.height);
   const bounds = getViewportBounds();
@@ -185,7 +195,6 @@ export function drawGridAndAxes() {
   const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
 
   ctx2d.save();
-
   const scale = h / (maxY - minY);
   const step = calculateDynamicStep(scale);
 
@@ -202,8 +211,7 @@ export function drawGridAndAxes() {
     for (let y = startY; y <= maxY; y += step) {
       ctx2d.beginPath(); ctx2d.moveTo(0, toCanvasY(y)); ctx2d.lineTo(w, toCanvasY(y)); ctx2d.stroke();
     }
-  } 
-  else if (state.gridStyle === 'polar') {
+  } else if (state.gridStyle === 'polar') {
     const maxRadius = Math.hypot(Math.max(Math.abs(minX), Math.abs(maxX)), Math.max(Math.abs(minY), Math.abs(maxY)));
     for (let r = step; r <= maxRadius; r += step) {
       ctx2d.beginPath();
@@ -217,228 +225,161 @@ export function drawGridAndAxes() {
       ctx2d.lineTo(toCanvasX(Math.cos(rad) * maxRadius), toCanvasY(Math.sin(rad) * maxRadius));
       ctx2d.stroke();
     }
-  } 
-  else if (state.gridStyle === 'isometric') {
-    const s = step * 1.5;
-    const diagMax = (Math.abs(maxX - minX) + Math.abs(maxY - minY)) * 2;
-    const startX = Math.floor(minX / s) * s;
-    for (let x = startX; x <= maxX; x += s) {
-      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(x), 0); ctx2d.lineTo(toCanvasX(x), h); ctx2d.stroke();
-    }
-    const tan30 = Math.tan(Math.PI / 6);
-    for (let c = -diagMax; c <= diagMax; c += s) {
-      ctx2d.beginPath();
-      ctx2d.moveTo(toCanvasX(minX), toCanvasY(tan30 * minX + c));
-      ctx2d.lineTo(toCanvasX(maxX), toCanvasY(tan30 * maxX + c));
-      ctx2d.stroke();
-
-      ctx2d.beginPath();
-      ctx2d.moveTo(toCanvasX(minX), toCanvasY(-tan30 * minX + c));
-      ctx2d.lineTo(toCanvasX(maxX), toCanvasY(-tan30 * maxX + c));
-      ctx2d.stroke();
-    }
-  } 
-  else if (state.gridStyle === 'triangular') {
-    const s = step * 1.5;
-    const hStep = s * (Math.sqrt(3) / 2);
-    const diagMax = (Math.abs(maxX - minX) + Math.abs(maxY - minY)) * 2;
-    const startY = Math.floor(minY / hStep) * hStep;
-    for (let y = startY; y <= maxY; y += hStep) {
-      ctx2d.beginPath(); ctx2d.moveTo(0, toCanvasY(y)); ctx2d.lineTo(w, toCanvasY(y)); ctx2d.stroke();
-    }
-    const tan60 = Math.tan(Math.PI / 3);
-    for (let c = -diagMax; c <= diagMax; c += s) {
-      ctx2d.beginPath();
-      ctx2d.moveTo(toCanvasX(minX), toCanvasY(tan60 * minX + c));
-      ctx2d.lineTo(toCanvasX(maxX), toCanvasY(tan60 * maxX + c));
-      ctx2d.stroke();
-
-      ctx2d.beginPath();
-      ctx2d.moveTo(toCanvasX(minX), toCanvasY(-tan60 * minX + c));
-      ctx2d.lineTo(toCanvasX(maxX), toCanvasY(-tan60 * maxX + c));
-      ctx2d.stroke();
-    }
   }
 
-  // Main Cartesian Axes
+  // Axes
   ctx2d.strokeStyle = '#475569';
   ctx2d.lineWidth = 1.5;
   const yAxis = toCanvasY(0), xAxis = toCanvasX(0);
   if (yAxis >= 0 && yAxis <= h) { ctx2d.beginPath(); ctx2d.moveTo(0, yAxis); ctx2d.lineTo(w, yAxis); ctx2d.stroke(); }
   if (xAxis >= 0 && xAxis <= w) { ctx2d.beginPath(); ctx2d.moveTo(xAxis, 0); ctx2d.lineTo(xAxis, h); ctx2d.stroke(); }
 
-  // Axis Labels & Numeric Tick Marks
+  // Numeric Tick Labels
   ctx2d.font = '11px monospace';
   ctx2d.fillStyle = '#64748b';
-
-  // X-Axis Numbers
   ctx2d.textAlign = 'center';
   ctx2d.textBaseline = 'top';
-  const labelStartY = Math.min(Math.max(yAxis + 6, 8), h - 20);
+
   const startXNum = Math.floor(minX / step) * step;
   for (let xVal = startXNum; xVal <= maxX; xVal += step) {
     if (Math.abs(xVal) < 1e-6) continue;
-    const canvasX = toCanvasX(xVal);
-    ctx2d.fillText(Number.isInteger(xVal) ? xVal.toString() : xVal.toFixed(2), canvasX, labelStartY);
+    ctx2d.fillText(Number.isInteger(xVal) ? xVal.toString() : xVal.toFixed(2), toCanvasX(xVal), Math.min(Math.max(yAxis + 6, 8), h - 20));
   }
 
-  // Y-Axis Numbers
   ctx2d.textAlign = 'right';
   ctx2d.textBaseline = 'middle';
-  const labelStartX = Math.min(Math.max(xAxis - 8, 30), w - 8);
   const startYNum = Math.floor(minY / step) * step;
   for (let yVal = startYNum; yVal <= maxY; yVal += step) {
     if (Math.abs(yVal) < 1e-6) continue;
-    const canvasY = toCanvasY(yVal);
-    ctx2d.fillText(Number.isInteger(yVal) ? yVal.toString() : yVal.toFixed(2), labelStartX, canvasY);
+    ctx2d.fillText(Number.isInteger(yVal) ? yVal.toString() : yVal.toFixed(2), Math.min(Math.max(xAxis - 8, 30), w - 8), toCanvasY(yVal));
   }
 
   ctx2d.restore();
   document.getElementById('coordsDisplay').innerText = `Center: (${state.centerX.toFixed(1)}, ${state.centerY.toFixed(1)}) Scale: ${state.zoomScale.toFixed(1)}u`;
 }
 
-/**
- * Expression Execution & Plotting Dispatcher
- */
 export function drawExpressions() {
   const bounds = getViewportBounds();
 
   state.expressions.forEach(expr => {
     if (!expr.active || !expr.raw.trim()) return;
 
-    const processed = preprocessKeywords(expr.raw.trim());
+    const raw = expr.raw.trim();
+    const processed = preprocessKeywords(raw);
 
-    if (processed.startsWith('vector(')) {
-      drawVector(processed, expr.color, bounds);
+    // Vector or List Arithmetic evaluation
+    if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×')) {
+      const vecListRes = evaluateVectorOrListExpr(processed);
+      if (vecListRes) {
+        if (vecListRes.type === 'vector') {
+          renderVector(vecListRes.value[0], vecListRes.value[1] || 0, expr.color, bounds);
+          return;
+        } else if (vecListRes.type === 'list') {
+          renderList(vecListRes.value, expr.color, bounds);
+          return;
+        }
+      }
+    }
+
+    // Direct Function definitions (e.g. f(x) = sin(x))
+    const funcDefMatch = processed.match(/^([a-zA-Z])\s*\(\s*x\s*\)\s*=\s*(.*)$/);
+    if (funcDefMatch) {
+      const body = substituteUserFunctions(funcDefMatch[2]);
+      drawExplicitFunction(body, expr.color, bounds);
       return;
     }
 
-    if (processed.startsWith('list{')) {
-      drawList(processed, expr.color, bounds);
-      return;
-    }
-
+    // Integrals
     if (processed.includes('∫')) {
       drawIntegralExpression(processed, expr.color, bounds);
       return;
     }
 
+    // Standard Explicit Functions / Equations
     if (processed.includes('=')) {
-      // Check for single-variable linear equations (e.g. 2x + 3 = 9)
-      const isSimpleLinear = /^[0-9xX\s\+\-\*\/\=]+$/.test(processed) && !processed.includes('y');
-      if (isSimpleLinear) {
-        try {
-          const solved = solveLinearEquation(processed);
-          if (typeof solved.value === 'number') {
-            drawVerticalLine(solved.value, expr.color, bounds);
-            return;
-          }
-        } catch (e) {}
-      }
-
       const parts = processed.split('=');
       const lhs = parts[0].trim();
-      const rhs = parts[1].trim();
+      const rhs = substituteUserFunctions(parts[1].trim());
 
-      if (lhs === 'y' && !rhs.includes('y') && !rhs.includes('x')) {
-        try {
-          const yVal = math.evaluate(rhs);
-          drawHorizontalLine(yVal, expr.color, bounds);
-          return;
-        } catch(e){}
+      if (lhs === 'y') {
+        drawExplicitFunction(rhs, expr.color, bounds);
+        return;
       }
 
-      drawImplicitEquation(lhs, rhs, expr.color, bounds);
+      drawImplicitEquation(substituteUserFunctions(lhs), rhs, expr.color, bounds);
       return;
     }
 
-    drawExplicitFunction(processed, expr.color, bounds);
+    drawExplicitFunction(substituteUserFunctions(processed), expr.color, bounds);
   });
 }
 
-function drawVector(exprStr, color, bounds) {
-  const match = exprStr.match(/vector\(\s*(-?[\d\.\*pi]+)\s*,\s*(-?[\d\.\*pi]+)\s*\)/);
-  if (!match) return;
+function renderVector(vx, vy, color, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
 
-  try {
-    const vx = math.evaluate(match[1]);
-    const vy = math.evaluate(match[2]);
+  const fromX = toCanvasX(0), fromY = toCanvasY(0);
+  const toX = toCanvasX(vx), toY = toCanvasY(vy);
 
-    const { minX, maxX, minY, maxY } = bounds;
-    const w = canvas2d.width, h = canvas2d.height;
-    const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
-    const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+  ctx2d.save();
+  ctx2d.strokeStyle = color;
+  ctx2d.fillStyle = color;
+  ctx2d.lineWidth = 3;
 
-    const fromX = toCanvasX(0), fromY = toCanvasY(0);
-    const toX = toCanvasX(vx), toY = toCanvasY(vy);
+  ctx2d.beginPath();
+  ctx2d.moveTo(fromX, fromY);
+  ctx2d.lineTo(toX, toY);
+  ctx2d.stroke();
 
-    ctx2d.save();
-    ctx2d.strokeStyle = color;
-    ctx2d.fillStyle = color;
-    ctx2d.lineWidth = 3;
+  const angle = Math.atan2(toY - fromY, toX - fromX);
+  const headLen = 12;
+  ctx2d.beginPath();
+  ctx2d.moveTo(toX, toY);
+  ctx2d.lineTo(toX - headLen * Math.cos(angle - Math.PI / 6), toY - headLen * Math.sin(angle - Math.PI / 6));
+  ctx2d.lineTo(toX - headLen * Math.cos(angle + Math.PI / 6), toY - headLen * Math.sin(angle + Math.PI / 6));
+  ctx2d.closePath();
+  ctx2d.fill();
 
-    ctx2d.beginPath();
-    ctx2d.moveTo(fromX, fromY);
-    ctx2d.lineTo(toX, toY);
-    ctx2d.stroke();
-
-    const angle = Math.atan2(toY - fromY, toX - fromX);
-    const headLen = 12;
-    ctx2d.beginPath();
-    ctx2d.moveTo(toX, toY);
-    ctx2d.lineTo(toX - headLen * Math.cos(angle - Math.PI / 6), toY - headLen * Math.sin(angle - Math.PI / 6));
-    ctx2d.lineTo(toX - headLen * Math.cos(angle + Math.PI / 6), toY - headLen * Math.sin(angle + Math.PI / 6));
-    ctx2d.closePath();
-    ctx2d.fill();
-
-    ctx2d.restore();
-  } catch(e){}
+  ctx2d.restore();
 }
 
-function drawList(exprStr, color, bounds) {
-  const match = exprStr.match(/list\{\s*(.*)\s*\}/);
-  if (!match) return;
+function renderList(items, color, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
 
-  try {
-    const items = match[1].split(',').map(item => math.evaluate(item.trim()));
-    const { minX, maxX, minY, maxY } = bounds;
-    const w = canvas2d.width, h = canvas2d.height;
-    const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
-    const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+  ctx2d.save();
+  ctx2d.fillStyle = color;
 
-    ctx2d.save();
-    ctx2d.fillStyle = color;
-
-    items.forEach((val) => {
+  items.forEach((val) => {
+    if (typeof val === 'number') {
       const cx = toCanvasX(val);
       const cy = toCanvasY(0);
       ctx2d.beginPath();
       ctx2d.arc(cx, cy, 6, 0, 2 * Math.PI);
       ctx2d.fill();
-    });
+    }
+  });
 
-    ctx2d.restore();
-  } catch(e){}
+  ctx2d.restore();
 }
 
 function drawIntegralExpression(exprStr, color, bounds) {
   let inner = exprStr.replace(/∫/g, '').trim();
-  if (inner.startsWith('(') && inner.endsWith(')')) {
-    inner = inner.slice(1, -1);
-  }
+  if (inner.startsWith('(') && inner.endsWith(')')) inner = inner.slice(1, -1);
 
   const parts = inner.split(',');
+  const funcStr = substituteUserFunctions(parts[0].trim());
 
   if (parts.length === 3) {
-    const funcStr = parts[0].trim();
     try {
-      const a = math.evaluate(parts[1].trim());
-      const b = math.evaluate(parts[2].trim());
+      const a = math.evaluate(substituteUserFunctions(parts[1].trim()));
+      const b = math.evaluate(substituteUserFunctions(parts[2].trim()));
       drawShadedIntegralArea(funcStr, a, b, color, bounds);
     } catch(e){}
-  } else {
-    const funcStr = parts[0].trim();
-    drawUnboundedAntiderivative(funcStr, color, bounds);
   }
 }
 
@@ -451,7 +392,6 @@ function drawShadedIntegralArea(funcStr, a, b, color, bounds) {
   const steps = 200;
   const startX = Math.max(a, minX);
   const endX = Math.min(b, maxX);
-
   if (startX >= endX) return;
 
   ctx2d.save();
@@ -477,88 +417,9 @@ function drawShadedIntegralArea(funcStr, a, b, color, bounds) {
   ctx2d.restore();
 }
 
-function drawUnboundedAntiderivative(funcStr, color, bounds) {
+function drawExplicitFunction(expressionStr, color, bounds) {
   const { minX, maxX, minY, maxY } = bounds;
   const w = canvas2d.width, h = canvas2d.height;
-  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
-  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
-
-  const steps = 400;
-  const dt = (maxX - minX) / steps;
-  
-  ctx2d.beginPath();
-  ctx2d.strokeStyle = color;
-  ctx2d.lineWidth = 2.5;
-
-  let accum = 0;
-  let first = true;
-
-  for (let i = 0; i <= steps; i++) {
-    const xWorld = minX + i * dt;
-    try {
-      const fVal = math.evaluate(funcStr, { x: xWorld });
-      accum += fVal * dt;
-
-      const canvasX = toCanvasX(xWorld);
-      const canvasY = toCanvasY(accum);
-
-      if (first) { ctx2d.moveTo(canvasX, canvasY); first = false; }
-      else { ctx2d.lineTo(canvasX, canvasY); }
-    } catch(e){ first = true; }
-  }
-  ctx2d.stroke();
-}
-
-function drawHorizontalLine(yVal, color, bounds) {
-  const { minY, maxY } = bounds;
-  const w = canvas2d.width, h = canvas2d.height;
-  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
-
-  const canvasY = toCanvasY(yVal);
-  ctx2d.save();
-  ctx2d.strokeStyle = color;
-  ctx2d.lineWidth = 2.5;
-  ctx2d.beginPath();
-  ctx2d.moveTo(0, canvasY);
-  ctx2d.lineTo(w, canvasY);
-  ctx2d.stroke();
-  ctx2d.restore();
-}
-
-function drawVerticalLine(xVal, color, bounds) {
-  const { minX, maxX } = bounds;
-  const w = canvas2d.width, h = canvas2d.height;
-  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
-
-  const canvasX = toCanvasX(xVal);
-  ctx2d.save();
-  ctx2d.strokeStyle = color;
-  ctx2d.lineWidth = 2.5;
-  ctx2d.beginPath();
-  ctx2d.moveTo(canvasX, 0);
-  ctx2d.lineTo(canvasX, h);
-  ctx2d.stroke();
-  ctx2d.restore();
-}
-
-function drawExplicitFunction(rawStr, color, bounds) {
-  const { minX, maxX, minY, maxY } = bounds;
-  const w = canvas2d.width, h = canvas2d.height;
-
-  let expressionStr = rawStr.replace(/y\s*=\s*/, '').trim();
-  let minDomain = -Infinity, maxDomain = Infinity;
-
-  if (expressionStr.includes(',')) {
-    const parts = expressionStr.split(',');
-    expressionStr = parts[0].trim();
-    const rangeMatch = parts[1].trim().match(/(-?[\d\.\*pi]+)\s*<\s*x\s*<\s*(-?[\d\.\*pi]+)/);
-    if (rangeMatch) {
-      try {
-        minDomain = math.evaluate(rangeMatch[1]);
-        maxDomain = math.evaluate(rangeMatch[2]);
-      } catch(e){}
-    }
-  }
 
   ctx2d.beginPath();
   ctx2d.strokeStyle = color;
@@ -571,15 +432,9 @@ function drawExplicitFunction(rawStr, color, bounds) {
     const t = i / steps;
     const xWorld = minX + t * (maxX - minX);
 
-    if (xWorld < minDomain || xWorld > maxDomain) { first = true; continue; }
-
     let yWorld;
     try {
-      if (expressionStr.includes('d/dx')) {
-        yWorld = evaluateDerivative(expressionStr, xWorld);
-      } else {
-        yWorld = math.evaluate(expressionStr, { x: xWorld });
-      }
+      yWorld = math.evaluate(expressionStr, { x: xWorld });
       if (!isFinite(yWorld) || isNaN(yWorld)) { first = true; continue; }
     } catch (e) { first = true; continue; }
 
@@ -597,21 +452,16 @@ function drawImplicitEquation(lhsStr, rhsStr, color, bounds) {
   const w = canvas2d.width, h = canvas2d.height;
 
   const exprCompiled = math.parse(`(${lhsStr}) - (${rhsStr})`).compile();
-
-  const cols = 100, rows = 100;
-  const dx = (maxX - minX) / cols;
-  const dy = (maxY - minY) / rows;
+  const cols = 80, rows = 80;
+  const dx = (maxX - minX) / cols, dy = (maxY - minY) / rows;
 
   const field = new Float32Array((cols + 1) * (rows + 1));
   for (let i = 0; i <= cols; i++) {
     const x = minX + i * dx;
     for (let j = 0; j <= rows; j++) {
       const y = minY + j * dy;
-      try {
-        field[i * (rows + 1) + j] = exprCompiled.evaluate({ x, y });
-      } catch (e) {
-        field[i * (rows + 1) + j] = NaN;
-      }
+      try { field[i * (rows + 1) + j] = exprCompiled.evaluate({ x, y }); } 
+      catch (e) { field[i * (rows + 1) + j] = NaN; }
     }
   }
 
@@ -647,14 +497,4 @@ function drawImplicitEquation(lhsStr, rhsStr, color, bounds) {
     }
   }
   ctx2d.stroke();
-}
-
-function evaluateDerivative(exprStr, xVal) {
-  const match = exprStr.match(/d\/dx\s*\((.*)\)/);
-  if (!match) return NaN;
-  const inner = match[1];
-  const h = 0.0001;
-  const y1 = math.evaluate(inner, { x: xVal + h });
-  const y2 = math.evaluate(inner, { x: xVal - h });
-  return (y1 - y2) / (2 * h);
 }

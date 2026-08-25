@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Multi-Grid, Vector & Advanced Math Graph Plotter</title>
+    <title>Multi-Grid Plotter & Function Engine</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
     <style>
         :root {
             --bg-color: #f8fafc;
-            --sidebar-width: 340px;
+            --sidebar-width: 360px;
             --primary-color: #3b82f6;
             --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
@@ -22,14 +22,12 @@
             overflow: hidden; background-color: var(--bg-color);
         }
 
-        /* --- Mobile Backdrop --- */
         #mobileBackdrop {
             display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0, 0, 0, 0.4); z-index: 19; opacity: 0;
             transition: opacity 0.3s ease;
         }
 
-        /* --- Sidebar UI --- */
         #sidebar {
             width: var(--sidebar-width);
             background: #ffffff; border-right: 1px solid #e2e8f0;
@@ -57,9 +55,12 @@
         }
         .eq-top-row { display: flex; align-items: center; gap: 8px; }
         .eq-color { width: 14px; height: 14px; border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0; }
+        
+        /* Math Italic Styling for Function Definitions */
         .eq-input {
             flex-grow: 1; border: 1px solid #cbd5e1; border-radius: 4px;
-            padding: 6px 8px; font-family: monospace; font-size: 0.85rem;
+            padding: 6px 8px; font-family: "Georgia", "Times New Roman", serif;
+            font-style: italic; font-size: 0.95rem;
             outline: none; background: #fff;
         }
         .eq-input:focus { border-color: var(--primary-color); }
@@ -81,7 +82,6 @@
         }
         .calc-tools button:hover { background: #f8fafc; }
 
-        /* Toggle Switch */
         .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider {
@@ -95,7 +95,6 @@
         input:checked + .slider { background-color: var(--primary-color); }
         input:checked + .slider:before { transform: translateX(16px); }
 
-        /* --- Main Graph Area --- */
         #main-container { flex-grow: 1; position: relative; display: flex; flex-direction: column; }
         #graph-wrapper { flex-grow: 1; position: relative; overflow: hidden; background: #fff; }
         
@@ -103,7 +102,6 @@
         #webglCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; opacity: 0; pointer-events: none; }
         #webglCanvas.active { opacity: 1; }
 
-        /* Top Control Bar */
         #topBar {
             position: absolute; top: 12px; left: 12px; right: 12px;
             display: flex; justify-content: space-between; align-items: center;
@@ -123,7 +121,6 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.05); outline: none; cursor: pointer;
         }
 
-        /* Bottom Bar */
         #bottom-bar {
             height: 60px; background: #fff; border-top: 1px solid #e2e8f0;
             display: flex; align-items: center; justify-content: space-between;
@@ -164,16 +161,15 @@
         <button class="add-eq-btn" id="addExprBtn">+ Add Expression</button>
 
         <div class="control-group">
-            <h3>Presets & Shortcuts</h3>
+            <h3>Operations & Symbols</h3>
             <div class="calc-tools" id="presetContainer">
-                <button data-preset="y = 3">y = 3</button>
-                <button data-preset="y^2 = 5">y^2 = 5</button>
-                <button data-preset="2x + 3 = 9">2x + 3 = 9</button>
-                <button data-preset="integral(x, 1, 3)">∫(1,3) x</button>
-                <button data-preset="integral(x)">∫ x</button>
-                <button data-preset="vector(4, 3)">Vector</button>
-                <button data-preset="list{ -3, -1, 2, 5 }">List</button>
-                <button id="helpBtn">Help</button>
+                <button data-preset="f(x) = sin(x)">f(x) = sin(x)</button>
+                <button data-preset="y = f(x) + 2">y = f(x) + 2</button>
+                <button data-preset="integral(f(x), 0, pi)">∫ f(x)</button>
+                <button data-preset="vector(1, 3) + vector(2, 5)">v1 + v2</button>
+                <button data-preset="vector(1, 0) × vector(0, 1)">v1 × v2</button>
+                <button data-preset="list{1, 2, 3} ∪ list{3, 4, 5}">Set ∪</button>
+                <button data-preset="list{1, 2} ∩ list{2, 3}">Set ∩</button>
             </div>
         </div>
 
@@ -192,15 +188,13 @@
         <div id="graph-wrapper">
             <div id="topBar">
                 <button class="icon-btn" id="openSidebarBtn">
-                    ☰ Equations
+                    ☰ Expressions
                 </button>
 
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <select id="gridTypeSelect" class="grid-selector">
                         <option value="square">Square Grid (Default)</option>
                         <option value="polar">Polar Grid</option>
-                        <option value="isometric">Isometric / Hexagonal</option>
-                        <option value="triangular">Equilateral Triangular</option>
                     </select>
                 </div>
             </div>
@@ -211,14 +205,10 @@
 
         <div id="bottom-bar">
             <div class="viewport-coords" id="coordsDisplay">Center: (0.0, 0.0) Scale: 10.0u</div>
-            <button id="downloadBtn">
-                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                Snapshot
-            </button>
+            <button id="downloadBtn">Snapshot</button>
         </div>
     </div>
 
-    <!-- Linked Module Script Engine -->
     <script type="module">
         import { 
           initEngine, 
@@ -255,7 +245,6 @@
             document.getElementById('closeSidebarBtn').addEventListener('click', closeSidebar);
             backdrop.addEventListener('click', closeSidebar);
             document.getElementById('addExprBtn').addEventListener('click', () => addExpression());
-            document.getElementById('helpBtn').addEventListener('click', showHelp);
 
             document.getElementById('presetContainer').addEventListener('click', (e) => {
                 const preset = e.target.getAttribute('data-preset');
@@ -278,7 +267,7 @@
                     <div class="eq-top-row">
                         <input type="checkbox" ${expr.active ? 'checked' : ''} data-action="toggle" data-id="${expr.id}">
                         <input type="color" class="eq-color" value="${expr.color}" data-action="color" data-id="${expr.id}">
-                        <input type="text" class="eq-input" placeholder="e.g. y = 3, 2x+3=9, vector(3,4)" value="${expr.raw}" data-action="input" data-id="${expr.id}">
+                        <input type="text" class="eq-input" placeholder="e.g. f(x) = sin(x)" value="${expr.raw}" data-action="input" data-id="${expr.id}">
                         <button style="background:none;border:none;color:#94a3b8;cursor:pointer;" data-action="remove" data-id="${expr.id}">✕</button>
                     </div>
                 `;
@@ -327,65 +316,25 @@
         function setupTouchAndPan() {
             let isDragging = false;
             let lastX = 0, lastY = 0;
-            let initialPinchDist = null;
 
             canvas2d.addEventListener('mousedown', e => {
                 isDragging = true; lastX = e.clientX; lastY = e.clientY;
             });
             window.addEventListener('mousemove', e => {
                 if (!isDragging) return;
-                pan(e.clientX - lastX, e.clientY - lastY);
+                const bounds = getViewportBounds();
+                state.centerX -= (e.clientX - lastX) * bounds.unitsPerPixel;
+                state.centerY += (e.clientY - lastY) * bounds.unitsPerPixel;
                 lastX = e.clientX; lastY = e.clientY;
+                draw();
             });
             window.addEventListener('mouseup', () => isDragging = false);
 
             canvas2d.addEventListener('wheel', e => {
                 e.preventDefault();
-                zoom(e.deltaY > 0 ? 1.1 : 0.9);
+                state.zoomScale *= e.deltaY > 0 ? 1.1 : 0.9;
+                draw();
             }, { passive: false });
-
-            canvas2d.addEventListener('touchstart', e => {
-                if (e.touches.length === 1) {
-                    isDragging = true;
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                } else if (e.touches.length === 2) {
-                    isDragging = false;
-                    initialPinchDist = Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY
-                    );
-                }
-            });
-
-            canvas2d.addEventListener('touchmove', e => {
-                if (isDragging && e.touches.length === 1) {
-                    pan(e.touches[0].clientX - lastX, e.touches[0].clientY - lastY);
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                } else if (e.touches.length === 2 && initialPinchDist) {
-                    const newDist = Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY
-                    );
-                    zoom(initialPinchDist / newDist);
-                    initialPinchDist = newDist;
-                }
-            }, { passive: true });
-
-            canvas2d.addEventListener('touchend', () => { isDragging = false; initialPinchDist = null; });
-        }
-
-        function pan(dx, dy) {
-            const bounds = getViewportBounds();
-            state.centerX -= dx * bounds.unitsPerPixel;
-            state.centerY += dy * bounds.unitsPerPixel;
-            draw();
-        }
-
-        function zoom(factor) {
-            state.zoomScale *= factor;
-            draw();
         }
 
         function resizeCanvases() {
@@ -403,10 +352,6 @@
             link.download = `graph_snapshot_${Date.now()}.png`;
             link.href = canvas2d.toDataURL('image/png');
             link.click();
-        }
-
-        function showHelp() {
-            alert("Plotter Features:\n\n1. Single-Variable Linear Solver:\n  • 2x + 3 = 9 (Plots vertical solution line)\n2. Integrals:\n  • Bounded: integral(x, 1, 3)\n  • Antiderivative: integral(x)\n3. Grid & Labels:\n  • Numbers on Axes\n  • Square, Polar, Isometric & Triangular Grids\n4. Vectors & Lists:\n  • vector(4, 3)\n  • list{ -3, -1, 2, 5 }");
         }
 
         initApp();

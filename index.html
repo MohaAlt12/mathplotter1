@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Multi-Grid & Implicit 2D Graph Plotter</title>
+    <title>Multi-Grid, Vector & Advanced Math Graph Plotter</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
     <style>
         :root {
             --bg-color: #f8fafc;
-            --sidebar-width: 320px;
+            --sidebar-width: 340px;
             --primary-color: #3b82f6;
             --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
@@ -76,9 +76,10 @@
         
         .calc-tools { display: flex; gap: 6px; flex-wrap: wrap; }
         .calc-tools button {
-            background: #fff; border: 1px solid #cbd5e1; padding: 6px 10px;
-            border-radius: 4px; cursor: pointer; font-size: 0.8rem; color: #334155;
+            background: #fff; border: 1px solid #cbd5e1; padding: 5px 8px;
+            border-radius: 4px; cursor: pointer; font-size: 0.75rem; color: #334155;
         }
+        .calc-tools button:hover { background: #f8fafc; }
 
         /* Toggle Switch */
         .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
@@ -150,24 +151,29 @@
 </head>
 <body>
 
-    <div id="mobileBackdrop" onclick="closeSidebar()"></div>
+    <div id="mobileBackdrop"></div>
 
     <div id="sidebar">
         <div class="sidebar-header">
             <h2>Expressions</h2>
-            <button class="close-sidebar-btn" onclick="closeSidebar()">✕</button>
+            <button class="close-sidebar-btn" id="closeSidebarBtn">✕</button>
         </div>
         
         <div class="equation-list" id="equationList"></div>
 
-        <button class="add-eq-btn" onclick="addExpression()">+ Add Expression</button>
+        <button class="add-eq-btn" id="addExprBtn">+ Add Expression</button>
 
         <div class="control-group">
-            <h3>Calculus & Implicit</h3>
-            <div class="calc-tools">
-                <button onclick="addExpression('x^2 + y^2 = 16')">Circle</button>
-                <button onclick="addDerivativePrompt()">d/dx</button>
-                <button onclick="showHelp()">Syntax Help</button>
+            <h3>Presets & Shortcuts</h3>
+            <div class="calc-tools" id="presetContainer">
+                <button data-preset="y = 3">y = 3</button>
+                <button data-preset="y^2 = 5">y^2 = 5</button>
+                <button data-preset="2x + 3 = 9">2x + 3 = 9</button>
+                <button data-preset="integral(x, 1, 3)">∫(1,3) x</button>
+                <button data-preset="integral(x)">∫ x</button>
+                <button data-preset="vector(4, 3)">Vector</button>
+                <button data-preset="list{ -3, -1, 2, 5 }">List</button>
+                <button id="helpBtn">Help</button>
             </div>
         </div>
 
@@ -185,12 +191,12 @@
     <div id="main-container">
         <div id="graph-wrapper">
             <div id="topBar">
-                <button class="icon-btn" onclick="openSidebar()">
+                <button class="icon-btn" id="openSidebarBtn">
                     ☰ Equations
                 </button>
 
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <select id="gridTypeSelect" class="grid-selector" onchange="changeGridType(this.value)">
+                    <select id="gridTypeSelect" class="grid-selector">
                         <option value="square">Square Grid (Default)</option>
                         <option value="polar">Polar Grid</option>
                         <option value="isometric">Isometric / Hexagonal</option>
@@ -212,31 +218,24 @@
         </div>
     </div>
 
-    <script>
-        /** APP STATE **/
-        const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
-        const state = {
-            webglEnabled: false,
-            gridStyle: 'square',
-            // Completely empty/vacant default expressions
-            expressions: [
-                { id: 1, raw: "", active: true, color: palette[0] },
-                { id: 2, raw: "", active: true, color: palette[1] },
-                { id: 3, raw: "", active: true, color: palette[2] }
-            ],
-            centerX: 0,
-            centerY: 0,
-            zoomScale: 10 // Units from center to vertical edge
-        };
+    <!-- Linked Module Script Engine -->
+    <script type="module">
+        import { 
+          initEngine, 
+          draw, 
+          state, 
+          palette, 
+          canvas2d, 
+          canvasWebgl, 
+          gl, 
+          getViewportBounds 
+        } from './mathengine.js';
 
-        const canvas2d = document.getElementById('graphCanvas');
-        const ctx2d = canvas2d.getContext('2d');
-        const canvasWebgl = document.getElementById('webglCanvas');
-        const gl = canvasWebgl.getContext('webgl');
         const sidebar = document.getElementById('sidebar');
         const backdrop = document.getElementById('mobileBackdrop');
 
-        function init() {
+        function initApp() {
+            initEngine();
             resizeCanvases();
             window.addEventListener('resize', resizeCanvases);
 
@@ -247,293 +246,84 @@
                 draw();
             });
 
+            document.getElementById('gridTypeSelect').addEventListener('change', (e) => {
+                state.gridStyle = e.target.value;
+                draw();
+            });
+
+            document.getElementById('openSidebarBtn').addEventListener('click', openSidebar);
+            document.getElementById('closeSidebarBtn').addEventListener('click', closeSidebar);
+            backdrop.addEventListener('click', closeSidebar);
+            document.getElementById('addExprBtn').addEventListener('click', () => addExpression());
+            document.getElementById('helpBtn').addEventListener('click', showHelp);
+
+            document.getElementById('presetContainer').addEventListener('click', (e) => {
+                const preset = e.target.getAttribute('data-preset');
+                if (preset) addExpression(preset);
+            });
+
             setupTouchAndPan();
             syncSidebar();
             draw();
         }
 
-        /** VIEWPORT & ASPECT RATIO CALCULATION **/
-        function getViewportBounds() {
-            const w = canvas2d.width;
-            const h = canvas2d.height;
-            const aspect = w / h;
-            
-            const ySpan = state.zoomScale;
-            const xSpan = ySpan * aspect;
+        function syncSidebar() {
+            const list = document.getElementById('equationList');
+            list.innerHTML = '';
 
-            return {
-                minX: state.centerX - xSpan,
-                maxX: state.centerX + xSpan,
-                minY: state.centerY - ySpan,
-                maxY: state.centerY + ySpan,
-                unitsPerPixel: (ySpan * 2) / h
+            state.expressions.forEach(expr => {
+                const item = document.createElement('div');
+                item.className = 'equation-item';
+                item.innerHTML = `
+                    <div class="eq-top-row">
+                        <input type="checkbox" ${expr.active ? 'checked' : ''} data-action="toggle" data-id="${expr.id}">
+                        <input type="color" class="eq-color" value="${expr.color}" data-action="color" data-id="${expr.id}">
+                        <input type="text" class="eq-input" placeholder="e.g. y = 3, 2x+3=9, vector(3,4)" value="${expr.raw}" data-action="input" data-id="${expr.id}">
+                        <button style="background:none;border:none;color:#94a3b8;cursor:pointer;" data-action="remove" data-id="${expr.id}">✕</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+
+            list.onclick = (e) => {
+                const id = parseInt(e.target.getAttribute('data-id'));
+                const action = e.target.getAttribute('data-action');
+                if (!id || !action) return;
+
+                if (action === 'toggle') {
+                    const expr = state.expressions.find(e => e.id === id);
+                    if (expr) { expr.active = e.target.checked; draw(); }
+                } else if (action === 'remove') {
+                    state.expressions = state.expressions.filter(e => e.id !== id);
+                    syncSidebar();
+                    draw();
+                }
+            };
+
+            list.oninput = (e) => {
+                const id = parseInt(e.target.getAttribute('data-id'));
+                const action = e.target.getAttribute('data-action');
+                if (id && action === 'input') {
+                    const expr = state.expressions.find(e => e.id === id);
+                    if (expr) { expr.raw = e.target.value; draw(); }
+                } else if (id && action === 'color') {
+                    const expr = state.expressions.find(e => e.id === id);
+                    if (expr) { expr.color = e.target.value; draw(); }
+                }
             };
         }
 
-        /** CORE RENDER PIPELINE **/
-        function draw() {
-            drawGridAndAxes();
-            drawFunctions();
-        }
-
-        function changeGridType(type) {
-            state.gridStyle = type;
+        function addExpression(initialVal = "") {
+            const newId = Date.now();
+            const color = palette[state.expressions.length % palette.length];
+            state.expressions.push({ id: newId, raw: initialVal, active: true, color: color });
+            syncSidebar();
             draw();
         }
 
-        /** REVISED GRID DISPLAY SYSTEM **/
-        function drawGridAndAxes() {
-            ctx2d.clearRect(0, 0, canvas2d.width, canvas2d.height);
-            const bounds = getViewportBounds();
-            const { minX, maxX, minY, maxY } = bounds;
-            const w = canvas2d.width, h = canvas2d.height;
+        function openSidebar() { sidebar.classList.add('open'); backdrop.classList.add('open'); }
+        function closeSidebar() { sidebar.classList.remove('open'); backdrop.classList.remove('open'); }
 
-            const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
-            const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
-
-            ctx2d.save();
-
-            // Dynamic Step Size Strategy for Scaling
-            let rawStep = state.zoomScale / 5;
-            let step = Math.pow(10, Math.floor(Math.log10(rawStep)));
-            if (rawStep / step > 5) step *= 5;
-            else if (rawStep / step > 2) step *= 2;
-
-            ctx2d.strokeStyle = '#e2e8f0';
-            ctx2d.lineWidth = 1;
-
-            if (state.gridStyle === 'square') {
-                const startX = Math.floor(minX / step) * step;
-                const startY = Math.floor(minY / step) * step;
-
-                for (let x = startX; x <= maxX; x += step) {
-                    ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(x), 0); ctx2d.lineTo(toCanvasX(x), h); ctx2d.stroke();
-                }
-                for (let y = startY; y <= maxY; y += step) {
-                    ctx2d.beginPath(); ctx2d.moveTo(0, toCanvasY(y)); ctx2d.lineTo(w, toCanvasY(y)); ctx2d.stroke();
-                }
-            } 
-            else if (state.gridStyle === 'polar') {
-                const maxRadius = Math.hypot(Math.max(Math.abs(minX), Math.abs(maxX)), Math.max(Math.abs(minY), Math.abs(maxY)));
-                for (let r = step; r <= maxRadius; r += step) {
-                    ctx2d.beginPath();
-                    ctx2d.arc(toCanvasX(0), toCanvasY(0), r / bounds.unitsPerPixel, 0, 2 * Math.PI);
-                    ctx2d.stroke();
-                }
-                for (let a = 0; a < 360; a += 30) {
-                    const rad = (a * Math.PI) / 180;
-                    ctx2d.beginPath();
-                    ctx2d.moveTo(toCanvasX(0), toCanvasY(0));
-                    ctx2d.lineTo(toCanvasX(Math.cos(rad) * maxRadius), toCanvasY(Math.sin(rad) * maxRadius));
-                    ctx2d.stroke();
-                }
-            } 
-            else if (state.gridStyle === 'isometric') {
-                // Correct Isometric Grid Angles: 30 deg and 150 deg (+ Verticals)
-                const s = step * 1.5;
-                const diagMax = (Math.abs(maxX - minX) + Math.abs(maxY - minY)) * 2;
-                
-                // Vertical Lines
-                const startX = Math.floor(minX / s) * s;
-                for (let x = startX; x <= maxX; x += s) {
-                    ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(x), 0); ctx2d.lineTo(toCanvasX(x), h); ctx2d.stroke();
-                }
-
-                // 30 Degree and 150 Degree Diagonals
-                const tan30 = Math.tan(Math.PI / 6);
-                for (let c = -diagMax; c <= diagMax; c += s) {
-                    // Y = tan(30)*X + c
-                    ctx2d.beginPath();
-                    ctx2d.moveTo(toCanvasX(minX), toCanvasY(tan30 * minX + c));
-                    ctx2d.lineTo(toCanvasX(maxX), toCanvasY(tan30 * maxX + c));
-                    ctx2d.stroke();
-
-                    // Y = -tan(30)*X + c
-                    ctx2d.beginPath();
-                    ctx2d.moveTo(toCanvasX(minX), toCanvasY(-tan30 * minX + c));
-                    ctx2d.lineTo(toCanvasX(maxX), toCanvasY(-tan30 * maxX + c));
-                    ctx2d.stroke();
-                }
-            } 
-            else if (state.gridStyle === 'triangular') {
-                // Correct Equilateral Triangular Tessellation: 0 deg, 60 deg, and 120 deg
-                const s = step * 1.5;
-                const hStep = s * (Math.sqrt(3) / 2); // Height of equilateral triangle
-                const diagMax = (Math.abs(maxX - minX) + Math.abs(maxY - minY)) * 2;
-
-                // Horizontal Lines
-                const startY = Math.floor(minY / hStep) * hStep;
-                for (let y = startY; y <= maxY; y += hStep) {
-                    ctx2d.beginPath(); ctx2d.moveTo(0, toCanvasY(y)); ctx2d.lineTo(w, toCanvasY(y)); ctx2d.stroke();
-                }
-
-                // 60 Degree and 120 Degree Diagonals
-                const tan60 = Math.tan(Math.PI / 3);
-                for (let c = -diagMax; c <= diagMax; c += s) {
-                    // Y = tan(60)*X + c
-                    ctx2d.beginPath();
-                    ctx2d.moveTo(toCanvasX(minX), toCanvasY(tan60 * minX + c));
-                    ctx2d.lineTo(toCanvasX(maxX), toCanvasY(tan60 * maxX + c));
-                    ctx2d.stroke();
-
-                    // Y = -tan(60)*X + c
-                    ctx2d.beginPath();
-                    ctx2d.moveTo(toCanvasX(minX), toCanvasY(-tan60 * minX + c));
-                    ctx2d.lineTo(toCanvasX(maxX), toCanvasY(-tan60 * maxX + c));
-                    ctx2d.stroke();
-                }
-            }
-
-            // Main Cartesian Axes (0,0)
-            ctx2d.strokeStyle = '#475569';
-            ctx2d.lineWidth = 1.5;
-            const yAxis = toCanvasY(0), xAxis = toCanvasX(0);
-            if (yAxis >= 0 && yAxis <= h) { ctx2d.beginPath(); ctx2d.moveTo(0, yAxis); ctx2d.lineTo(w, yAxis); ctx2d.stroke(); }
-            if (xAxis >= 0 && xAxis <= w) { ctx2d.beginPath(); ctx2d.moveTo(xAxis, 0); ctx2d.lineTo(xAxis, h); ctx2d.stroke(); }
-
-            ctx2d.restore();
-            document.getElementById('coordsDisplay').innerText = `Center: (${state.centerX.toFixed(1)}, ${state.centerY.toFixed(1)}) Scale: ${state.zoomScale.toFixed(1)}u`;
-        }
-
-        /** FUNCTION EVALUATOR (EXPLICIT, IMPLICIT & CALCULUS) **/
-        function drawFunctions() {
-            const bounds = getViewportBounds();
-
-            state.expressions.forEach(expr => {
-                if (!expr.active || !expr.raw.trim()) return;
-
-                const rawStr = expr.raw.trim();
-
-                if (rawStr.includes('=')) {
-                    const parts = rawStr.split('=');
-                    if (parts[0].includes('y') && (parts[0].includes('x') || parts[1].includes('y') || parts[1].includes('x'))) {
-                        drawImplicitEquation(parts[0], parts[1], expr.color, bounds);
-                        return;
-                    }
-                }
-                drawExplicitFunction(rawStr, expr.color, bounds);
-            });
-        }
-
-        function drawExplicitFunction(rawStr, color, bounds) {
-            const { minX, maxX, minY, maxY } = bounds;
-            const w = canvas2d.width, h = canvas2d.height;
-
-            let expressionStr = rawStr.replace(/y\s*=\s*/, '').trim();
-            let minDomain = -Infinity, maxDomain = Infinity;
-
-            if (expressionStr.includes(',')) {
-                const parts = expressionStr.split(',');
-                expressionStr = parts[0].trim();
-                const rangeMatch = parts[1].trim().match(/(-?[\d\.\*pi]+)\s*<\s*x\s*<\s*(-?[\d\.\*pi]+)/);
-                if (rangeMatch) {
-                    try {
-                        minDomain = math.evaluate(rangeMatch[1]);
-                        maxDomain = math.evaluate(rangeMatch[2]);
-                    } catch(e){}
-                }
-            }
-
-            ctx2d.beginPath();
-            ctx2d.strokeStyle = color;
-            ctx2d.lineWidth = 2.5;
-
-            const steps = w < 600 ? 400 : 800;
-            let first = true;
-
-            for (let i = 0; i <= steps; i++) {
-                const t = i / steps;
-                const xWorld = minX + t * (maxX - minX);
-
-                if (xWorld < minDomain || xWorld > maxDomain) { first = true; continue; }
-
-                let yWorld;
-                try {
-                    if (expressionStr.includes('d/dx')) {
-                        yWorld = evaluateDerivative(expressionStr, xWorld);
-                    } else {
-                        yWorld = math.evaluate(expressionStr, { x: xWorld });
-                    }
-                    if (!isFinite(yWorld) || isNaN(yWorld)) { first = true; continue; }
-                } catch (e) { first = true; continue; }
-
-                const canvasX = ((xWorld - minX) / (maxX - minX)) * w;
-                const canvasY = h - (((yWorld - minY) / (maxY - minY)) * h);
-
-                if (first) { ctx2d.moveTo(canvasX, canvasY); first = false; }
-                else { ctx2d.lineTo(canvasX, canvasY); }
-            }
-            ctx2d.stroke();
-        }
-
-        function drawImplicitEquation(lhsStr, rhsStr, color, bounds) {
-            const { minX, maxX, minY, maxY } = bounds;
-            const w = canvas2d.width, h = canvas2d.height;
-
-            const exprCompiled = math.parse(`(${lhsStr}) - (${rhsStr})`).compile();
-
-            const cols = 90, rows = 90;
-            const dx = (maxX - minX) / cols;
-            const dy = (maxY - minY) / rows;
-
-            const field = new Float32Array((cols + 1) * (rows + 1));
-            for (let i = 0; i <= cols; i++) {
-                const x = minX + i * dx;
-                for (let j = 0; j <= rows; j++) {
-                    const y = minY + j * dy;
-                    try {
-                        field[i * (rows + 1) + j] = exprCompiled.evaluate({ x, y });
-                    } catch (e) {
-                        field[i * (rows + 1) + j] = NaN;
-                    }
-                }
-            }
-
-            ctx2d.beginPath();
-            ctx2d.strokeStyle = color;
-            ctx2d.lineWidth = 2.5;
-
-            for (let i = 0; i < cols; i++) {
-                for (let j = 0; j < rows; j++) {
-                    const x0 = minX + i * dx, x1 = x0 + dx;
-                    const y0 = minY + j * dy, y1 = y0 + dy;
-
-                    const v0 = field[i * (rows + 1) + j];
-                    const v1 = field[(i + 1) * (rows + 1) + j];
-                    const v2 = field[(i + 1) * (rows + 1) + (j + 1)];
-                    const v3 = field[i * (rows + 1) + (j + 1)];
-
-                    const edges = [];
-                    if (v0 * v1 <= 0) edges.push([x0 + (dx * (-v0)) / (v1 - v0), y0]);
-                    if (v1 * v2 <= 0) edges.push([x1, y0 + (dy * (-v1)) / (v2 - v1)]);
-                    if (v2 * v3 <= 0) edges.push([x0 + (dx * (-v3)) / (v2 - v3), y1]);
-                    if (v3 * v0 <= 0) edges.push([x0, y0 + (dy * (-v0)) / (v3 - v0)]);
-
-                    if (edges.length === 2) {
-                        const px1 = ((edges[0][0] - minX) / (maxX - minX)) * w;
-                        const py1 = h - (((edges[0][1] - minY) / (maxY - minY)) * h);
-                        const px2 = ((edges[1][0] - minX) / (maxX - minX)) * w;
-                        const py2 = h - (((edges[1][1] - minY) / (maxY - minY)) * h);
-
-                        ctx2d.moveTo(px1, py1);
-                        ctx2d.lineTo(px2, py2);
-                    }
-                }
-            }
-            ctx2d.stroke();
-        }
-
-        function evaluateDerivative(exprStr, xVal) {
-            const match = exprStr.match(/d\/dx\s*\((.*)\)/);
-            if (!match) return NaN;
-            const inner = match[1];
-            const h = 0.0001;
-            const y1 = math.evaluate(inner, { x: xVal + h });
-            const y2 = math.evaluate(inner, { x: xVal - h });
-            return (y1 - y2) / (2 * h);
-        }
-
-        /** REVISED TOUCH, PAN & ZOOM CONTROLS **/
         function setupTouchAndPan() {
             let isDragging = false;
             let lastX = 0, lastY = 0;
@@ -598,43 +388,6 @@
             draw();
         }
 
-        /** SIDEBAR INTEGRATION **/
-        function syncSidebar() {
-            const list = document.getElementById('equationList');
-            list.innerHTML = '';
-
-            state.expressions.forEach(expr => {
-                const item = document.createElement('div');
-                item.className = 'equation-item';
-                item.innerHTML = `
-                    <div class="eq-top-row">
-                        <input type="checkbox" ${expr.active ? 'checked' : ''} onchange="toggleExpr(${expr.id})">
-                        <input type="color" class="eq-color" value="${expr.color}" onchange="updateColor(${expr.id}, this.value)">
-                        <input type="text" class="eq-input" placeholder="e.g. x^2 + y^2 = 16 or y = sin(x)" value="${expr.raw}" oninput="updateExpr(${expr.id}, this.value)">
-                        <button style="background:none;border:none;color:#94a3b8;cursor:pointer;" onclick="removeExpr(${expr.id})">✕</button>
-                    </div>
-                `;
-                list.appendChild(item);
-            });
-        }
-
-        function addExpression(initialVal = "") {
-            const newId = Date.now();
-            const color = palette[state.expressions.length % palette.length];
-            state.expressions.push({ id: newId, raw: initialVal, active: true, color: color });
-            syncSidebar();
-            draw();
-        }
-
-        function addDerivativePrompt() { addExpression("d/dx(x^2)"); }
-        function updateExpr(id, val) { const expr = state.expressions.find(e => e.id === id); if (expr) { expr.raw = val; draw(); } }
-        function updateColor(id, color) { const expr = state.expressions.find(e => e.id === id); if (expr) { expr.color = color; draw(); } }
-        function toggleExpr(id) { const expr = state.expressions.find(e => e.id === id); if (expr) { expr.active = !expr.active; draw(); } }
-        function removeExpr(id) { state.expressions = state.expressions.filter(e => e.id !== id); syncSidebar(); draw(); }
-
-        function openSidebar() { sidebar.classList.add('open'); backdrop.classList.add('open'); }
-        function closeSidebar() { sidebar.classList.remove('open'); backdrop.classList.remove('open'); }
-
         function resizeCanvases() {
             const wrapper = document.getElementById('graph-wrapper');
             canvas2d.width = wrapper.clientWidth;
@@ -653,10 +406,10 @@
         }
 
         function showHelp() {
-            alert("Supported Equations:\n\n1. Explicit: y = sin(x), -2*pi < x < 2*pi\n2. Implicit (2-Var): x^2 + y^2 = 16\n3. Hyperbolas: x^2/9 - y^2/4 = 1\n4. Calculus: d/dx(cos(x))\n\nGrid Types: Select Square, Polar, Isometric or Triangular from the top dropdown.");
+            alert("Plotter Features:\n\n1. Single-Variable Linear Solver:\n  • 2x + 3 = 9 (Plots vertical solution line)\n2. Integrals:\n  • Bounded: integral(x, 1, 3)\n  • Antiderivative: integral(x)\n3. Grid & Labels:\n  • Numbers on Axes\n  • Square, Polar, Isometric & Triangular Grids\n4. Vectors & Lists:\n  • vector(4, 3)\n  • list{ -3, -1, 2, 5 }");
         }
 
-        init();
+        initApp();
     </script>
 </body>
 </html>

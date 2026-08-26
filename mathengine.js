@@ -1,5 +1,5 @@
 /**
- * mathengine.js - Advanced Mathematical, Vector, Set & Variable Engine
+ * mathengine.js - Refactored Engine for Grid Mobility, Function Stability & Math Operations
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -10,7 +10,7 @@ export const state = {
   expressions: [
     { id: 1, raw: "a = 3", active: true, color: palette[0], min: -10, max: 10, val: 3 },
     { id: 2, raw: "f(x) = sin(a * x)", active: true, color: palette[1] },
-    { id: 3, raw: "x + 3 = 7", active: true, color: palette[2] },
+    { id: 3, raw: "y = f(x) + 1", active: true, color: palette[2] },
     { id: 4, raw: "list{1, 2, 3} - list{3, 4}", active: true, color: palette[3] }
   ],
   userFunctions: {},
@@ -30,6 +30,7 @@ export function initEngine() {
 }
 
 export function preprocessKeywords(input) {
+  if (!input) return '';
   let str = input;
   str = str.replace(/\bunion\b/g, '∪');
   str = str.replace(/\b(intersection|intersect)\b/g, '∩');
@@ -46,34 +47,16 @@ export function preprocessKeywords(input) {
   return str;
 }
 
-export function substituteVariablesAndFunctions(exprStr) {
-  let result = exprStr;
-  
-  // Replace custom variables (constants/sliders)
-  for (const [varName, val] of Object.entries(state.userVariables)) {
-    const varRegex = new RegExp(`\\b${varName}\\b`, 'g');
-    result = result.replace(varRegex, `(${val})`);
-  }
-
-  // Replace custom user functions
-  for (const [funcName, body] of Object.entries(state.userFunctions)) {
-    const regex = new RegExp(`\\b${funcName}\\s*\\(([^)]+)\\)`, 'g');
-    result = result.replace(regex, (_, arg) => `(${body.replace(/\bx\b/g, `(${arg})`)})`);
-  }
-
-  return result;
-}
-
 export function registerFunctionsAndVariables() {
   state.userFunctions = {};
   state.userVariables = {};
 
   state.expressions.forEach(expr => {
-    if (!expr.active || !expr.raw.trim()) return;
+    if (!expr.active || !expr.raw || !expr.raw.trim()) return;
     const processed = preprocessKeywords(expr.raw.trim());
 
-    // Variable definition: e.g. a = 3
-    const varDefMatch = processed.match(/^([a-zA-Z])\s*=\s*(-?\d+\.?\d*)$/);
+    // Variable Definition (e.g., a = 3)
+    const varDefMatch = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
     if (varDefMatch) {
       const name = varDefMatch[1];
       if (name !== 'x' && name !== 'y') {
@@ -84,8 +67,8 @@ export function registerFunctionsAndVariables() {
       }
     }
 
-    // Function definition: e.g. f(x) = sin(x)
-    const funcDefMatch = processed.match(/^([a-zA-Z])\s*\(\s*x\s*\)\s*=\s*(.*)$/);
+    // Function Definition (e.g., f(x) = sin(x))
+    const funcDefMatch = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)\s*=\s*(.*)$/);
     if (funcDefMatch) {
       const name = funcDefMatch[1];
       const body = funcDefMatch[2].trim();
@@ -94,20 +77,45 @@ export function registerFunctionsAndVariables() {
   });
 }
 
-/**
- * Evaluates constant numerical expressions & solves 1-variable linear equations
- */
+export function substituteVariablesAndFunctions(exprStr) {
+  if (!exprStr) return '';
+  let result = exprStr;
+
+  // Substitute Constants/Variables
+  for (const [varName, val] of Object.entries(state.userVariables)) {
+    const varRegex = new RegExp(`\\b${varName}\\b`, 'g');
+    result = result.replace(varRegex, `(${val})`);
+  }
+
+  // Substitute Custom User Functions (Robust non-recursive replacement)
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations < 5) {
+    changed = false;
+    iterations++;
+    for (const [funcName, body] of Object.entries(state.userFunctions)) {
+      const funcRegex = new RegExp(`\\b${funcName}\\s*\\(([^()]+)\\)`, 'g');
+      if (funcRegex.test(result)) {
+        result = result.replace(funcRegex, (_, arg) => {
+          return `(${body.replace(/\bx\b/g, `(${arg})`)})`;
+        });
+        changed = true;
+      }
+    }
+  }
+
+  return result;
+}
+
 export function evaluateOutcome(input) {
-  let processed = preprocessKeywords(input.trim());
+  let processed = preprocessKeywords(input ? input.trim() : '');
   if (!processed) return null;
 
-  // Ignore functions or variable assignments
-  if (processed.match(/^[a-zA-Z]\s*\(\s*x\s*\)\s*=/)) return null;
-  if (processed.match(/^[a-zA-Z]\s*=\s*-?\d+\.?\d*$/)) return null;
+  if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*x\s*\)\s*=/)) return null;
+  if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*-?\d+\.?\d*$/)) return null;
 
   processed = substituteVariablesAndFunctions(processed);
 
-  // Set & Vector evaluation
   const setVecRes = evaluateVectorOrListExpr(processed);
   if (setVecRes) {
     if (setVecRes.type === 'list') return `Outcome: { ${setVecRes.value.join(', ')} }`;
@@ -115,27 +123,23 @@ export function evaluateOutcome(input) {
     if (setVecRes.type === 'scalar') return `Outcome: ${setVecRes.value}`;
   }
 
-  // Equation solving (e.g., x + 3 = 7)
   if (processed.includes('=') && !processed.startsWith('y=')) {
     const parts = processed.split('=');
     const lhs = parts[0].trim();
     const rhs = parts[1].trim();
 
     try {
-      // Numerical solution search for x in [lhs - rhs = 0]
       const eqStr = `(${lhs}) - (${rhs})`;
       const f = (xVal) => math.evaluate(eqStr, { x: xVal });
-      
       let sol = null;
-      for (let xTest = -100; xTest <= 100; xTest += 0.5) {
-        if (Math.abs(f(xTest)) < 1e-5) { sol = xTest; break; }
+      for (let xTest = -100; xTest <= 100; xTest += 0.25) {
+        if (Math.abs(f(xTest)) < 1e-4) { sol = xTest; break; }
       }
       if (sol !== null) return `x = ${Number.isInteger(sol) ? sol : sol.toFixed(4)}`;
     } catch(e) {}
     return null;
   }
 
-  // Pure Numeric calculation
   try {
     const val = math.evaluate(processed);
     if (typeof val === 'number' && !isNaN(val)) {
@@ -146,81 +150,79 @@ export function evaluateOutcome(input) {
   return null;
 }
 
-/**
- * Advanced Set & Vector Evaluator
- */
 export function evaluateVectorOrListExpr(input) {
   let expr = preprocessKeywords(input);
 
-  // Parse lists: list{1, 2, 3}
   expr = expr.replace(/list\s*\{([^}]+)\}/g, (_, items) => {
     const arr = items.split(',').map(x => math.evaluate(substituteVariablesAndFunctions(x.trim())));
     return `[${arr.join(',')}]`;
   });
 
-  // Parse vectors: vector(1, 2)
   expr = expr.replace(/vector\s*\(([^)]+)\)/g, (_, items) => {
     const arr = items.split(',').map(x => math.evaluate(substituteVariablesAndFunctions(x.trim())));
     return `[${arr.join(',')}]`;
   });
 
-  // Set Subtraction (list{1, 2, 3} - list{3, 4})
   if (expr.includes('-') && expr.includes('[')) {
-    const parts = expr.split('-').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
-    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
-      const diffSet = parts[0].filter(x => !parts[1].includes(x));
-      return { type: 'list', value: diffSet };
-    }
+    try {
+      const parts = expr.split('-').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
+      if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+        const diffSet = parts[0].filter(x => !parts[1].includes(x));
+        return { type: 'list', value: diffSet };
+      }
+    } catch(e){}
   }
 
-  // Set Union (∪)
   if (expr.includes('∪')) {
-    const parts = expr.split('∪').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
-    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
-      const unionSet = Array.from(new Set([...parts[0], ...parts[1]]));
-      return { type: 'list', value: unionSet };
-    }
+    try {
+      const parts = expr.split('∪').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
+      if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+        return { type: 'list', value: Array.from(new Set([...parts[0], ...parts[1]])) };
+      }
+    } catch(e){}
   }
 
-  // Set Intersection (∩)
   if (expr.includes('∩')) {
-    const parts = expr.split('∩').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
-    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
-      const intersectSet = parts[0].filter(x => parts[1].includes(x));
-      return { type: 'list', value: Array.from(new Set(intersectSet)) };
-    }
+    try {
+      const parts = expr.split('∩').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
+      if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+        return { type: 'list', value: Array.from(new Set(parts[0].filter(x => parts[1].includes(x)))) };
+      }
+    } catch(e){}
   }
 
-  // Vector Dot Product (·)
   if (expr.includes('·')) {
-    const parts = expr.split('·').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
-    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
-      const dotProduct = parts[0].reduce((sum, val, idx) => sum + val * (parts[1][idx] || 0), 0);
-      return { type: 'scalar', value: dotProduct };
-    }
+    try {
+      const parts = expr.split('·').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
+      if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+        const dot = parts[0].reduce((sum, val, idx) => sum + val * (parts[1][idx] || 0), 0);
+        return { type: 'scalar', value: dot };
+      }
+    } catch(e){}
   }
 
-  // Vector Cross Product (×)
   if (expr.includes('×')) {
-    const parts = expr.split('×').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
-    if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
-      const v1 = parts[0], v2 = parts[1];
-      if (v1.length === 2) v1.push(0);
-      if (v2.length === 2) v2.push(0);
-      const cross = [
-        v1[1] * v2[2] - v1[2] * v2[1],
-        v1[2] * v2[0] - v1[0] * v2[2],
-        v1[0] * v2[1] - v1[1] * v2[0]
-      ];
-      return { type: 'vector', value: cross };
-    }
+    try {
+      const parts = expr.split('×').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
+      if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+        const v1 = parts[0], v2 = parts[1];
+        if (v1.length === 2) v1.push(0);
+        if (v2.length === 2) v2.push(0);
+        const cross = [
+          v1[1] * v2[2] - v1[2] * v2[1],
+          v1[2] * v2[0] - v1[0] * v2[2],
+          v1[0] * v2[1] - v1[1] * v2[0]
+        ];
+        return { type: 'vector', value: cross };
+      }
+    } catch(e){}
   }
 
   return null;
 }
 
 export function getViewportBounds() {
-  const w = canvas2d.width, h = canvas2d.height;
+  const w = canvas2d.width || 1, h = canvas2d.height || 1;
   const aspect = w / h;
   const ySpan = state.zoomScale;
   const xSpan = ySpan * aspect;
@@ -235,7 +237,7 @@ export function getViewportBounds() {
 }
 
 export function calculateDynamicStep(scale) {
-  const rawStep = 60 / scale;
+  const rawStep = 80 / scale;
   const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
   const residual = rawStep / mag;
   if (residual < 2) return mag;
@@ -294,26 +296,24 @@ export function drawGridAndAxes() {
   }
 
   ctx2d.restore();
-  document.getElementById('coordsDisplay').innerText = `Center: (${state.centerX.toFixed(1)}, ${state.centerY.toFixed(1)}) Scale: ${state.zoomScale.toFixed(1)}u`;
+  document.getElementById('coordsDisplay').innerText = `Center: (${state.centerX.toFixed(2)}, ${state.centerY.toFixed(2)}) Scale: ${state.zoomScale.toFixed(1)}u`;
 }
 
 export function drawExpressions() {
   const bounds = getViewportBounds();
 
   state.expressions.forEach(expr => {
-    if (!expr.active || !expr.raw.trim()) return;
+    if (!expr.active || !expr.raw || !expr.raw.trim()) return;
 
     const raw = expr.raw.trim();
     const processed = substituteVariablesAndFunctions(preprocessKeywords(raw));
 
-    // Render Vectors or Sets
     if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×')) {
       const res = evaluateVectorOrListExpr(processed);
       if (res && res.type === 'vector') renderVector(res.value[0], res.value[1] || 0, expr.color, bounds);
       return;
     }
 
-    // Explicit or Implicit functions
     if (processed.includes('=')) {
       const parts = processed.split('=');
       const lhs = parts[0].trim();
@@ -393,7 +393,7 @@ function drawImplicitEquation(lhsStr, rhsStr, color, bounds) {
 
   try {
     const exprCompiled = math.parse(`(${lhsStr}) - (${rhsStr})`).compile();
-    const cols = 60, rows = 60;
+    const cols = 50, rows = 50;
     const dx = (maxX - minX) / cols, dy = (maxY - minY) / rows;
 
     const field = new Float32Array((cols + 1) * (rows + 1));

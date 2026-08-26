@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>MathPlotter - Final Beta Release</title>
+    <title>MathPlotter Engine - Mobile & Grid Hotfix</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
     <style>
         :root {
@@ -33,11 +33,12 @@
             background: #ffffff; border-right: 1px solid #e2e8f0;
             display: flex; flex-direction: column; padding: 1rem;
             z-index: 20; transition: transform 0.3s ease;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.03);
         }
 
         .sidebar-header {
             display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 1rem;
+            margin-bottom: 1rem; flex-shrink: 0;
         }
         .sidebar-header h2 { margin: 0; font-size: 1.25rem; color: #0f172a; }
 
@@ -46,66 +47,72 @@
             font-size: 1.5rem; color: #64748b; cursor: pointer; padding: 4px;
         }
 
-        .equation-list { flex-grow: 1; overflow-y: auto; margin-bottom: 1rem; }
+        .equation-list { flex-grow: 1; overflow-y: auto; margin-bottom: 1rem; padding-right: 4px; }
         
         .equation-item {
             background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem;
             border-radius: 8px; margin-bottom: 0.75rem;
-            display: flex; flex-direction: column; gap: 6px;
-            transition: box-shadow 0.3s ease, border-color 0.3s ease;
+            display: flex; flex-direction: column; gap: 8px;
+            transition: box-shadow 0.2s ease, border-color 0.2s ease;
+            width: 100%; box-sizing: border-border-box;
         }
 
-        /* Glowing style for active variable constants */
         .equation-item.variable-glow {
             border-color: #3b82f6;
-            box-shadow: 0 0 10px rgba(59, 130, 246, 0.35);
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
         }
 
-        .eq-top-row { display: flex; align-items: center; gap: 8px; }
-        .eq-color { width: 14px; height: 14px; border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0; }
+        .eq-top-row { 
+            display: flex; align-items: center; gap: 6px; 
+            width: 100%; min-width: 0;
+        }
+        
+        .eq-color { 
+            width: 16px; height: 16px; border-radius: 50%; border: none; 
+            cursor: pointer; flex-shrink: 0; padding: 0; background: none;
+        }
         
         .eq-input {
-            flex-grow: 1; border: 1px solid #cbd5e1; border-radius: 4px;
-            padding: 6px 8px; font-family: "Georgia", "Times New Roman", serif;
-            font-style: italic; font-size: 0.95rem;
-            outline: none; background: #fff;
+            flex: 1 1 auto; min-width: 0; width: 100%;
+            border: 1px solid #cbd5e1; border-radius: 6px;
+            padding: 6px 10px; font-family: "Georgia", "Times New Roman", serif;
+            font-style: italic; font-size: 0.95rem; outline: none; background: #fff;
         }
         .eq-input:focus { border-color: var(--primary-color); }
 
         .gear-btn, .remove-btn {
-            background: none; border: none; color: #64748b; cursor: pointer;
-            font-size: 1.1rem; padding: 2px 4px; border-radius: 4px;
+            background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569; 
+            cursor: pointer; font-size: 0.9rem; padding: 4px 8px; border-radius: 6px;
+            flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
         }
         .gear-btn:hover, .remove-btn:hover { background: #e2e8f0; color: #0f172a; }
 
         .outcome-badge {
-            font-family: monospace; font-size: 0.82rem; color: #059669;
+            font-family: monospace; font-size: 0.8rem; color: #059669;
             background: #ecfdf5; border: 1px solid #a7f3d0;
-            padding: 4px 8px; border-radius: 4px; margin-top: 2px;
+            padding: 4px 8px; border-radius: 4px; word-break: break-all;
         }
 
-        .slider-control-row {
-            display: flex; align-items: center; gap: 8px; margin-top: 4px;
-        }
-        .slider-control-row input[type=range] { flex-grow: 1; cursor: pointer; }
-        .slider-val { font-family: monospace; font-size: 0.8rem; width: 35px; text-align: right; }
+        .slider-control-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+        .slider-control-row input[type=range] { flex: 1; min-width: 0; cursor: pointer; }
+        .slider-val { font-family: monospace; font-size: 0.8rem; width: 36px; text-align: right; flex-shrink: 0; }
 
         .settings-panel {
             display: none; background: #fff; border: 1px dashed #cbd5e1;
-            padding: 6px 8px; border-radius: 4px; font-size: 0.8rem;
-            margin-top: 4px; justify-content: space-between; align-items: center;
+            padding: 6px 8px; border-radius: 6px; font-size: 0.8rem;
+            justify-content: space-between; align-items: center; gap: 8px;
         }
         .settings-panel.open { display: flex; }
-        .settings-panel input { width: 50px; padding: 2px 4px; font-size: 0.8rem; }
+        .settings-panel input { width: 55px; padding: 2px 4px; font-size: 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; }
 
         .add-eq-btn {
             width: 100%; background: #f1f5f9; border: 1px dashed #cbd5e1;
-            padding: 8px; border-radius: 6px; color: #475569; font-weight: 600;
-            cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; text-align: center;
+            padding: 10px; border-radius: 6px; color: #475569; font-weight: 600;
+            cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; text-align: center; flex-shrink: 0;
         }
         .add-eq-btn:hover { background: #e2e8f0; }
 
-        .control-group { border-top: 1px solid #f1f5f9; padding-top: 0.75rem; }
+        .control-group { border-top: 1px solid #f1f5f9; padding-top: 0.75rem; flex-shrink: 0; }
         .control-group h3 { font-size: 0.85rem; margin: 0 0 0.5rem 0; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; }
         
         .calc-tools { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -134,9 +141,9 @@
         }
 
         #bottom-bar {
-            height: 60px; background: #fff; border-top: 1px solid #e2e8f0;
+            height: 50px; background: #fff; border-top: 1px solid #e2e8f0;
             display: flex; align-items: center; justify-content: space-between;
-            padding: 0 1rem; z-index: 10;
+            padding: 0 1rem; z-index: 10; flex-shrink: 0;
         }
         #downloadBtn {
             background-color: var(--primary-color); color: #fff; border: none;
@@ -148,8 +155,8 @@
         @media (max-width: 768px) {
             #sidebar {
                 position: fixed; top: 0; bottom: 0; left: 0;
-                transform: translateX(-100%); width: 85%; max-width: 340px;
-                box-shadow: 4px 0 12px rgba(0,0,0,0.1);
+                transform: translateX(-100%); width: 88%; max-width: 360px;
+                box-shadow: 4px 0 12px rgba(0,0,0,0.15);
             }
             #sidebar.open { transform: translateX(0); }
             #mobileBackdrop.open { display: block; opacity: 1; }
@@ -195,7 +202,7 @@
         </div>
 
         <div id="bottom-bar">
-            <div class="viewport-coords" id="coordsDisplay">Center: (0.0, 0.0) Scale: 10.0u</div>
+            <div class="viewport-coords" id="coordsDisplay">Center: (0.00, 0.00) Scale: 10.0u</div>
             <button id="downloadBtn">Snapshot</button>
         </div>
     </div>
@@ -232,30 +239,32 @@
             });
 
             setupTouchAndPan();
-            syncSidebar();
+            renderSidebar();
             draw();
         }
 
-        function syncSidebar() {
+        // Optimized sidebar renderer to prevent mobile virtual keyboard loss on input
+        function renderSidebar() {
             const list = document.getElementById('equationList');
             list.innerHTML = '';
 
             state.expressions.forEach(expr => {
-                const raw = expr.raw.trim();
+                const raw = expr.raw ? expr.raw.trim() : '';
                 const processed = preprocessKeywords(raw);
-                const isVar = processed.match(/^([a-zA-Z])\s*=\s*(-?\d+\.?\d*)$/);
+                const isVar = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
                 const outcome = evaluateOutcome(raw);
 
                 const item = document.createElement('div');
                 item.className = `equation-item ${isVar ? 'variable-glow' : ''}`;
+                item.setAttribute('data-item-id', expr.id);
                 
                 let innerHTML = `
                     <div class="eq-top-row">
-                        <input type="checkbox" ${expr.active ? 'checked' : ''} data-action="toggle" data-id="${expr.id}">
-                        <input type="color" class="eq-color" value="${expr.color}" data-action="color" data-id="${expr.id}">
-                        <input type="text" class="eq-input" placeholder="e.g. a = 3 or f(x)" value="${expr.raw}" data-action="input" data-id="${expr.id}">
-                        ${isVar ? `<button class="gear-btn" data-action="gear" data-id="${expr.id}">⚙</button>` : ''}
-                        <button class="remove-btn" data-action="remove" data-id="${expr.id}" title="Remove Expression">✕</button>
+                        <input type="checkbox" ${expr.active ? 'checked' : ''} data-action="toggle">
+                        <input type="color" class="eq-color" value="${expr.color}" data-action="color">
+                        <input type="text" class="eq-input" placeholder="e.g. a = 3 or f(x)" value="${expr.raw}" data-action="input">
+                        ${isVar ? `<button class="gear-btn" data-action="gear" title="Variable Settings">⚙</button>` : ''}
+                        <button class="remove-btn" data-action="remove" title="Remove Expression">✕</button>
                     </div>
                 `;
 
@@ -270,12 +279,12 @@
 
                     innerHTML += `
                         <div class="slider-control-row">
-                            <input type="range" min="${min}" max="${max}" step="0.1" value="${val}" data-action="slider" data-id="${expr.id}">
+                            <input type="range" min="${min}" max="${max}" step="0.1" value="${val}" data-action="slider">
                             <span class="slider-val">${val}</span>
                         </div>
-                        <div class="settings-panel ${expr.showSettings ? 'open' : ''}" id="settings-${expr.id}">
-                            <label>Min: <input type="number" value="${min}" data-action="setMin" data-id="${expr.id}"></label>
-                            <label>Max: <input type="number" value="${max}" data-action="setMax" data-id="${expr.id}"></label>
+                        <div class="settings-panel ${expr.showSettings ? 'open' : ''}">
+                            <label>Min: <input type="number" value="${min}" data-action="setMin"></label>
+                            <label>Max: <input type="number" value="${max}" data-action="setMax"></label>
                         </div>
                     `;
                 }
@@ -284,45 +293,64 @@
                 list.appendChild(item);
             });
 
-            list.onclick = (e) => {
-                const id = parseInt(e.target.getAttribute('data-id'));
+            setupSidebarEventListeners();
+        }
+
+        function setupSidebarEventListeners() {
+            const list = document.getElementById('equationList');
+
+            list.onchange = (e) => {
+                const item = e.target.closest('.equation-item');
+                if (!item) return;
+                const id = parseInt(item.getAttribute('data-item-id'));
                 const action = e.target.getAttribute('data-action');
-                if (!id || !action) return;
+                const expr = state.expressions.find(e => e.id === id);
+                if (!expr) return;
 
                 if (action === 'toggle') {
-                    const expr = state.expressions.find(e => e.id === id);
-                    if (expr) { expr.active = e.target.checked; draw(); }
-                } else if (action === 'remove') {
-                    state.expressions = state.expressions.filter(e => e.id !== id);
-                    syncSidebar();
+                    expr.active = e.target.checked;
                     draw();
-                } else if (action === 'gear') {
-                    const expr = state.expressions.find(e => e.id === id);
-                    if (expr) {
-                        expr.showSettings = !expr.showSettings;
-                        syncSidebar();
-                    }
+                } else if (action === 'color') {
+                    expr.color = e.target.value;
+                    draw();
                 }
             };
 
             list.oninput = (e) => {
-                const id = parseInt(e.target.getAttribute('data-id'));
+                const item = e.target.closest('.equation-item');
+                if (!item) return;
+                const id = parseInt(item.getAttribute('data-item-id'));
                 const action = e.target.getAttribute('data-action');
-                if (!id || !action) return;
-
                 const expr = state.expressions.find(e => e.id === id);
                 if (!expr) return;
 
                 if (action === 'input') {
                     expr.raw = e.target.value;
-                    syncSidebar();
-                    draw();
-                } else if (action === 'color') {
-                    expr.color = e.target.value;
+                    
+                    // In-place updates without destroying DOM nodes to retain mobile keyboard focus
+                    const processed = preprocessKeywords(expr.raw.trim());
+                    const isVar = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
+                    if (isVar) item.classList.add('variable-glow');
+                    else item.classList.remove('variable-glow');
+
+                    const outcome = evaluateOutcome(expr.raw);
+                    let badge = item.querySelector('.outcome-badge');
+                    if (outcome) {
+                        if (!badge) {
+                            badge = document.createElement('div');
+                            badge.className = 'outcome-badge';
+                            item.appendChild(badge);
+                        }
+                        badge.innerText = outcome;
+                    } else if (badge) {
+                        badge.remove();
+                    }
+
                     draw();
                 } else if (action === 'slider') {
                     expr.val = parseFloat(e.target.value);
-                    syncSidebar();
+                    const valDisplay = item.querySelector('.slider-val');
+                    if (valDisplay) valDisplay.innerText = expr.val;
                     draw();
                 } else if (action === 'setMin') {
                     expr.min = parseFloat(e.target.value) || -10;
@@ -332,13 +360,31 @@
                     draw();
                 }
             };
+
+            list.onclick = (e) => {
+                const item = e.target.closest('.equation-item');
+                if (!item) return;
+                const id = parseInt(item.getAttribute('data-item-id'));
+                const action = e.target.getAttribute('data-action');
+                const expr = state.expressions.find(e => e.id === id);
+                if (!expr) return;
+
+                if (action === 'remove') {
+                    state.expressions = state.expressions.filter(e => e.id !== id);
+                    renderSidebar();
+                    draw();
+                } else if (action === 'gear') {
+                    expr.showSettings = !expr.showSettings;
+                    renderSidebar();
+                }
+            };
         }
 
         function addExpression(initialVal = "") {
             const newId = Date.now();
             const color = palette[state.expressions.length % palette.length];
             state.expressions.push({ id: newId, raw: initialVal, active: true, color: color });
-            syncSidebar();
+            renderSidebar();
             draw();
         }
 
@@ -349,22 +395,41 @@
             let isDragging = false;
             let lastX = 0, lastY = 0;
 
-            canvas2d.addEventListener('mousedown', e => {
-                isDragging = true; lastX = e.clientX; lastY = e.clientY;
+            canvas2d.addEventListener('pointerdown', e => {
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                canvas2d.setPointerCapture(e.pointerId);
             });
-            window.addEventListener('mousemove', e => {
+
+            canvas2d.addEventListener('pointermove', e => {
                 if (!isDragging) return;
                 const bounds = getViewportBounds();
-                state.centerX -= (e.clientX - lastX) * bounds.unitsPerPixel;
-                state.centerY += (e.clientY - lastY) * bounds.unitsPerPixel;
-                lastX = e.clientX; lastY = e.clientY;
+                const dx = e.clientX - lastX;
+                const dy = e.clientY - lastY;
+                
+                state.centerX -= dx * bounds.unitsPerPixel;
+                state.centerY += dy * bounds.unitsPerPixel;
+                
+                lastX = e.clientX;
+                lastY = e.clientY;
                 draw();
             });
-            window.addEventListener('mouseup', () => isDragging = false);
+
+            const stopDrag = (e) => {
+                if (isDragging) {
+                    isDragging = false;
+                    try { canvas2d.releasePointerCapture(e.pointerId); } catch(err){}
+                }
+            };
+
+            canvas2d.addEventListener('pointerup', stopDrag);
+            canvas2d.addEventListener('pointercancel', stopDrag);
 
             canvas2d.addEventListener('wheel', e => {
                 e.preventDefault();
-                state.zoomScale *= e.deltaY > 0 ? 1.1 : 0.9;
+                const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+                state.zoomScale *= zoomFactor;
                 draw();
             }, { passive: false });
         }

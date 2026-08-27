@@ -1,7 +1,7 @@
 /**
  * mathengine.js - Engine with Y-Axis Labels, Touch Scaling, Function Plotting,
  * Single/Double Summations (sum, sum2, doublesum), Integrals (integral),
- * and Imaginary Unit Support (i, e^(i*x)).
+ * Imaginary Unit Support (i, e^(i*x)), and Persistent Keyboard Focus.
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -22,7 +22,8 @@ export const state = {
   complexPoints: [],
   centerX: 0,
   centerY: 0,
-  zoomScale: 10
+  zoomScale: 10,
+  inputTimeout: null
 };
 
 export let canvas2d, ctx2d, canvasWebgl, gl;
@@ -34,6 +35,7 @@ export function initEngine() {
   canvasWebgl = document.getElementById('webglCanvas');
   gl = canvasWebgl.getContext('webgl');
   
+  setupMobileKeyboardFocus();
   startEngineLoop();
 }
 
@@ -46,6 +48,68 @@ export function startEngineLoop() {
   engineLoopTimer = setInterval(() => {
     draw();
   }, 500);
+}
+
+/**
+ * Fixes mobile keyboard collapse by debouncing structural re-renders
+ * and preventing non-input controls from stealing focus on touch events.
+ */
+export function setupMobileKeyboardFocus() {
+  // Prevent custom math buttons/keypads from blurring active text inputs
+  document.querySelectorAll('.math-keypad, .calculus-toolbar, button').forEach(el => {
+    el.addEventListener('pointerdown', (e) => {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        e.preventDefault();
+      }
+    });
+  });
+}
+
+/**
+ * Safely updates input value while maintaining selection range and focus context.
+ */
+export function updateMathInput(inputEl, newValue) {
+  if (!inputEl) return;
+  const isFocused = (document.activeElement === inputEl);
+  const start = inputEl.selectionStart;
+  const end = inputEl.selectionEnd;
+
+  if (inputEl.value !== newValue) {
+    inputEl.value = newValue;
+  }
+
+  if (isFocused && document.activeElement !== inputEl) {
+    inputEl.focus({ preventScroll: true });
+    if (start !== null && end !== null) {
+      inputEl.setSelectionRange(start, end);
+    }
+  }
+}
+
+/**
+ * Debounced evaluation wrapper to ensure mobile keyboard paint cycles aren't dropped.
+ */
+export function bindExpressionInput(inputEl, exprId) {
+  if (!inputEl) return;
+
+  inputEl.addEventListener('input', (e) => {
+    const start = e.target.selectionStart;
+    const end = e.target.selectionEnd;
+    const value = e.target.value;
+
+    const expr = state.expressions.find(item => item.id === exprId);
+    if (expr) {
+      expr.raw = value;
+    }
+
+    clearTimeout(state.inputTimeout);
+    state.inputTimeout = setTimeout(() => {
+      draw();
+      if (document.activeElement === e.target) {
+        e.target.setSelectionRange(start, end);
+      }
+    }, 50);
+  });
 }
 
 export function preprocessKeywords(input) {

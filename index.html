@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>MathPlotter Engine - Mobile & Grid Hotfix</title>
+    <title>MathPlotter Engine - Y-Axis, Gesture Touch & Function Fix</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
     <style>
         :root {
@@ -54,7 +54,7 @@
             border-radius: 8px; margin-bottom: 0.75rem;
             display: flex; flex-direction: column; gap: 8px;
             transition: box-shadow 0.2s ease, border-color 0.2s ease;
-            width: 100%; box-sizing: border-border-box;
+            width: 100%; box-sizing: border-box;
         }
 
         .equation-item.variable-glow {
@@ -243,7 +243,6 @@
             draw();
         }
 
-        // Optimized sidebar renderer to prevent mobile virtual keyboard loss on input
         function renderSidebar() {
             const list = document.getElementById('equationList');
             list.innerHTML = '';
@@ -327,7 +326,6 @@
                 if (action === 'input') {
                     expr.raw = e.target.value;
                     
-                    // In-place updates without destroying DOM nodes to retain mobile keyboard focus
                     const processed = preprocessKeywords(expr.raw.trim());
                     const isVar = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
                     if (isVar) item.classList.add('variable-glow');
@@ -394,37 +392,67 @@
         function setupTouchAndPan() {
             let isDragging = false;
             let lastX = 0, lastY = 0;
+            const activePointers = new Map();
+            let initialPinchDistance = null;
 
             canvas2d.addEventListener('pointerdown', e => {
-                isDragging = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                
+                if (activePointers.size === 1) {
+                    isDragging = true;
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                } else if (activePointers.size === 2) {
+                    isDragging = false;
+                    const pts = Array.from(activePointers.values());
+                    initialPinchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                }
+                
                 canvas2d.setPointerCapture(e.pointerId);
             });
 
             canvas2d.addEventListener('pointermove', e => {
-                if (!isDragging) return;
-                const bounds = getViewportBounds();
-                const dx = e.clientX - lastX;
-                const dy = e.clientY - lastY;
-                
-                state.centerX -= dx * bounds.unitsPerPixel;
-                state.centerY += dy * bounds.unitsPerPixel;
-                
-                lastX = e.clientX;
-                lastY = e.clientY;
-                draw();
+                if (activePointers.has(e.pointerId)) {
+                    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                }
+
+                // Handle Mobile Pinch-To-Zoom Scaling
+                if (activePointers.size === 2 && initialPinchDistance) {
+                    const pts = Array.from(activePointers.values());
+                    const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    
+                    if (currentDist > 0) {
+                        const factor = initialPinchDistance / currentDist;
+                        state.zoomScale *= Math.pow(factor, 0.05);
+                        draw();
+                    }
+                    return;
+                }
+
+                // Handle Panning
+                if (isDragging && activePointers.size === 1) {
+                    const bounds = getViewportBounds();
+                    const dx = e.clientX - lastX;
+                    const dy = e.clientY - lastY;
+                    
+                    state.centerX -= dx * bounds.unitsPerPixel;
+                    state.centerY += dy * bounds.unitsPerPixel;
+                    
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                    draw();
+                }
             });
 
-            const stopDrag = (e) => {
-                if (isDragging) {
-                    isDragging = false;
-                    try { canvas2d.releasePointerCapture(e.pointerId); } catch(err){}
-                }
+            const stopPointer = (e) => {
+                activePointers.delete(e.pointerId);
+                if (activePointers.size < 2) initialPinchDistance = null;
+                if (activePointers.size === 0) isDragging = false;
+                try { canvas2d.releasePointerCapture(e.pointerId); } catch(err){}
             };
 
-            canvas2d.addEventListener('pointerup', stopDrag);
-            canvas2d.addEventListener('pointercancel', stopDrag);
+            canvas2d.addEventListener('pointerup', stopPointer);
+            canvas2d.addEventListener('pointercancel', stopPointer);
 
             canvas2d.addEventListener('wheel', e => {
                 e.preventDefault();

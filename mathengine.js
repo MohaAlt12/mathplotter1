@@ -1,5 +1,5 @@
 /**
- * mathengine.js - Refactored Engine for Grid Mobility, Function Stability & Math Operations
+ * mathengine.js - Engine with Y-Axis Labels, Touch Scaling & Function Plotting
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -87,7 +87,7 @@ export function substituteVariablesAndFunctions(exprStr) {
     result = result.replace(varRegex, `(${val})`);
   }
 
-  // Substitute Custom User Functions (Robust non-recursive replacement)
+  // Substitute Custom User Functions
   let changed = true;
   let iterations = 0;
   while (changed && iterations < 5) {
@@ -286,13 +286,24 @@ export function drawGridAndAxes() {
 
   ctx2d.font = '11px monospace';
   ctx2d.fillStyle = '#64748b';
+
+  // Render X-Axis Numbers
   ctx2d.textAlign = 'center';
   ctx2d.textBaseline = 'top';
-
   const startXNum = Math.floor(minX / step) * step;
   for (let xVal = startXNum; xVal <= maxX; xVal += step) {
     if (Math.abs(xVal) < 1e-6) continue;
     ctx2d.fillText(Number.isInteger(xVal) ? xVal.toString() : xVal.toFixed(2), toCanvasX(xVal), Math.min(Math.max(yAxis + 6, 8), h - 20));
+  }
+
+  // Render Y-Axis Numbers
+  ctx2d.textAlign = 'right';
+  ctx2d.textBaseline = 'middle';
+  const startYNum = Math.floor(minY / step) * step;
+  for (let yVal = startYNum; yVal <= maxY; yVal += step) {
+    if (Math.abs(yVal) < 1e-6) continue;
+    const labelX = Math.min(Math.max(xAxis - 6, 35), w - 8);
+    ctx2d.fillText(Number.isInteger(yVal) ? yVal.toString() : yVal.toFixed(2), labelX, toCanvasY(yVal));
   }
 
   ctx2d.restore();
@@ -305,7 +316,14 @@ export function drawExpressions() {
   state.expressions.forEach(expr => {
     if (!expr.active || !expr.raw || !expr.raw.trim()) return;
 
-    const raw = expr.raw.trim();
+    let raw = expr.raw.trim();
+    
+    // Support functional definitions directly as graphable equations
+    const funcMatch = raw.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)\s*=\s*(.*)$/);
+    if (funcMatch) {
+      raw = funcMatch[2].trim();
+    }
+
     const processed = substituteVariablesAndFunctions(preprocessKeywords(raw));
 
     if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×')) {

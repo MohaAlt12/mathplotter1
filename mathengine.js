@@ -1,5 +1,6 @@
 /**
- * mathengine.js - Engine with Y-Axis Labels, Touch Scaling & Function Plotting
+ * mathengine.js - Engine with Y-Axis Labels, Touch Scaling, Function Plotting,
+ * Single/Double Summations (sum, sum2, doublesum), and Integrals (integral).
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -10,8 +11,9 @@ export const state = {
   expressions: [
     { id: 1, raw: "a = 3", active: true, color: palette[0], min: -10, max: 10, val: 3 },
     { id: 2, raw: "f(x) = sin(a * x)", active: true, color: palette[1] },
-    { id: 3, raw: "y = f(x) + 1", active: true, color: palette[2] },
-    { id: 4, raw: "list{1, 2, 3} - list{3, 4}", active: true, color: palette[3] }
+    { id: 3, raw: "sum(x, 1, 3)", active: true, color: palette[2] },
+    { id: 4, raw: "sum2(x, {1, 2}, {1, 2})", active: true, color: palette[3] },
+    { id: 5, raw: "integral(x, 0, 4)", active: true, color: palette[4] }
   ],
   userFunctions: {},
   userVariables: {},
@@ -107,12 +109,105 @@ export function substituteVariablesAndFunctions(exprStr) {
   return result;
 }
 
+// -------------------------------------------------------------
+// Advanced Calculus Tools: Summation, Double Summation, Integral
+// -------------------------------------------------------------
+
+export function parseAndEvaluateSummation(input) {
+  const clean = input.trim();
+
+  // 1. Double Summation: sum2( f(x), {a, b}, {c, d} ) or ∑∑( f(x), {a, b}, {c, d} )
+  const doubleSumRegex = /^(?:sum2|∑∑)\s*\(\s*(.+)\s*,\s*\{([^,]+),([^}]+)\}\s*,\s*\{([^,]+),([^}]+)\}\s*\)$/i;
+  const matchDouble = clean.match(doubleSumRegex);
+
+  if (matchDouble) {
+    const exprBody = matchDouble[1];
+    const a = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[2])));
+    const b = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[3])));
+    const c = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[4])));
+    const d = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[5])));
+
+    let totalSum = 0;
+    for (let outer = c; outer <= d; outer++) {
+      for (let inner = a; inner <= b; inner++) {
+        const substituted = substituteVariablesAndFunctions(exprBody);
+        const evalVal = math.evaluate(substituted, { x: inner, y: outer });
+        totalSum += evalVal;
+      }
+    }
+    return totalSum;
+  }
+
+  // 2. Single Summation: sum( f(x), a, b ) or ∑( f(x), a, b )
+  const singleSumRegex = /^(?:sum|∑)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i;
+  const matchSingle = clean.match(singleSumRegex);
+
+  if (matchSingle) {
+    const exprBody = matchSingle[1];
+    const a = Math.round(math.evaluate(substituteVariablesAndFunctions(matchSingle[2])));
+    const b = Math.round(math.evaluate(substituteVariablesAndFunctions(matchSingle[3])));
+
+    let totalSum = 0;
+    for (let i = a; i <= b; i++) {
+      const substituted = substituteVariablesAndFunctions(exprBody);
+      const evalVal = math.evaluate(substituted, { x: i });
+      totalSum += evalVal;
+    }
+    return totalSum;
+  }
+
+  return null;
+}
+
+export function parseAndEvaluateIntegral(input) {
+  const clean = input.trim();
+
+  // Definite Integral: integral( f(x), a, b ) or ∫( f(x), a, b )
+  const defIntegralRegex = /^(?:integral|∫)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i;
+  const matchDef = clean.match(defIntegralRegex);
+
+  if (matchDef) {
+    const exprBody = matchDef[1];
+    const a = math.evaluate(substituteVariablesAndFunctions(matchDef[2]));
+    const b = math.evaluate(substituteVariablesAndFunctions(matchDef[3]));
+
+    const n = 1000; // Integration steps (Simpson's Rule)
+    const h = (b - a) / n;
+    let sum = 0;
+
+    const evalAt = (val) => {
+      const substituted = substituteVariablesAndFunctions(exprBody);
+      return math.evaluate(substituted, { x: val });
+    };
+
+    sum += evalAt(a) + evalAt(b);
+    for (let i = 1; i < n; i += 2) sum += 4 * evalAt(a + i * h);
+    for (let i = 2; i < n - 1; i += 2) sum += 2 * evalAt(a + i * h);
+
+    return (h / 3) * sum;
+  }
+
+  return null;
+}
+
 export function evaluateOutcome(input) {
   let processed = preprocessKeywords(input ? input.trim() : '');
   if (!processed) return null;
 
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*x\s*\)\s*=/)) return null;
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*-?\d+\.?\d*$/)) return null;
+
+  // Check Summations
+  const sumRes = parseAndEvaluateSummation(processed);
+  if (sumRes !== null) {
+    return `Outcome: ${Number.isInteger(sumRes) ? sumRes : sumRes.toFixed(4)}`;
+  }
+
+  // Check Definite Integral
+  const intRes = parseAndEvaluateIntegral(processed);
+  if (intRes !== null) {
+    return `Outcome: ${Number.isInteger(intRes) ? intRes : intRes.toFixed(4)}`;
+  }
 
   processed = substituteVariablesAndFunctions(processed);
 
@@ -326,6 +421,19 @@ export function drawExpressions() {
 
     const processed = substituteVariablesAndFunctions(preprocessKeywords(raw));
 
+    // Handle Definite & Indefinite Integrals Graphically
+    const defIntegralMatch = processed.match(/^(?:integral|∫)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
+    if (defIntegralMatch) {
+      drawDefiniteIntegralArea(defIntegralMatch[1], defIntegralMatch[2], defIntegralMatch[3], expr.color, bounds);
+      return;
+    }
+
+    const indefIntegralMatch = processed.match(/^(?:integral|∫)\s*\(\s*(.+)\s*\)$/i);
+    if (indefIntegralMatch) {
+      drawIndefiniteIntegralCurve(indefIntegralMatch[1], expr.color, bounds);
+      return;
+    }
+
     if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×')) {
       const res = evaluateVectorOrListExpr(processed);
       if (res && res.type === 'vector') renderVector(res.value[0], res.value[1] || 0, expr.color, bounds);
@@ -346,6 +454,71 @@ export function drawExpressions() {
 
     drawExplicitFunction(processed, expr.color, bounds);
   });
+}
+
+function drawDefiniteIntegralArea(exprStr, aStr, bStr, color, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+
+  try {
+    const a = math.evaluate(substituteVariablesAndFunctions(aStr));
+    const b = math.evaluate(substituteVariablesAndFunctions(bStr));
+
+    ctx2d.save();
+    ctx2d.fillStyle = color + "33"; // Semi-transparent fill
+    ctx2d.strokeStyle = color;
+    ctx2d.lineWidth = 2;
+
+    ctx2d.beginPath();
+    ctx2d.moveTo(toCanvasX(a), toCanvasY(0));
+
+    const steps = 200;
+    for (let i = 0; i <= steps; i++) {
+      const xWorld = a + (i / steps) * (b - a);
+      const yWorld = math.evaluate(substituteVariablesAndFunctions(exprStr), { x: xWorld });
+      ctx2d.lineTo(toCanvasX(xWorld), toCanvasY(yWorld));
+    }
+
+    ctx2d.lineTo(toCanvasX(b), toCanvasY(0));
+    ctx2d.closePath();
+    ctx2d.fill();
+    ctx2d.stroke();
+    ctx2d.restore();
+  } catch(e) {}
+}
+
+function drawIndefiniteIntegralCurve(exprStr, color, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+
+  ctx2d.beginPath();
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth = 2.5;
+
+  const steps = 400;
+  let accumulated = 0;
+  let first = true;
+  const dx = (maxX - minX) / steps;
+
+  for (let i = 0; i <= steps; i++) {
+    const xWorld = minX + i * dx;
+    let yWorld;
+
+    try {
+      const fVal = math.evaluate(substituteVariablesAndFunctions(exprStr), { x: xWorld });
+      accumulated += fVal * dx;
+      yWorld = accumulated;
+    } catch(e) { first = true; continue; }
+
+    const canvasX = ((xWorld - minX) / (maxX - minX)) * w;
+    const canvasY = h - (((yWorld - minY) / (maxY - minY)) * h);
+
+    if (first) { ctx2d.moveTo(canvasX, canvasY); first = false; }
+    else { ctx2d.lineTo(canvasX, canvasY); }
+  }
+  ctx2d.stroke();
 }
 
 function renderVector(vx, vy, color, bounds) {

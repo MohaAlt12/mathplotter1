@@ -201,6 +201,30 @@ export function parseComplexPoint(input) {
   return null;
 }
 
+// Ensure you update the value of the existing element rather than re-creating it
+function updateMathInput(newValue) {
+    const inputEl = document.getElementById('math-input');
+    if (inputEl) {
+        inputEl.value = newValue; // Keep the existing node in the DOM
+    }
+}
+
+inputEl.addEventListener('input', (e) => {
+    const start = e.target.selectionStart;
+    const end = e.target.selectionEnd;
+
+    // Perform processing / evaluation logic here
+    processMathExpression(e.target.value);
+
+    // Re-focus and restore cursor position
+    e.target.focus();
+    e.target.setSelectionRange(start, end);
+});
+
+// Prevent virtual buttons from stealing focus from the text field
+mathButton.addEventListener('mousedown', (e) => e.preventDefault());
+mathButton.addEventListener('touchstart', (e) => e.preventDefault());
+
 // -------------------------------------------------------------
 // Advanced Calculus Tools: Summation, Double Summation, Integral
 // -------------------------------------------------------------

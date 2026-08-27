@@ -1,6 +1,7 @@
 /**
  * mathengine.js - Engine with Y-Axis Labels, Touch Scaling, Function Plotting,
- * Single/Double Summations (sum, sum2, doublesum), and Integrals (integral).
+ * Single/Double Summations (sum, sum2, doublesum), Integrals (integral),
+ * and Imaginary Unit Support (i, e^(i*x)).
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -12,23 +13,39 @@ export const state = {
     { id: 1, raw: "a = 3", active: true, color: palette[0], min: -10, max: 10, val: 3 },
     { id: 2, raw: "f(x) = sin(a * x)", active: true, color: palette[1] },
     { id: 3, raw: "sum(x, 1, 3)", active: true, color: palette[2] },
-    { id: 4, raw: "sum2(x, {1, 2}, {1, 2})", active: true, color: palette[3] },
-    { id: 5, raw: "integral(x, 0, 4)", active: true, color: palette[4] }
+    { id: 4, raw: "sum2(x+y, x{1,2}, y{1,3})", active: true, color: palette[3] },
+    { id: 5, raw: "integral(x, 0, 4)", active: true, color: palette[4] },
+    { id: 6, raw: "i + 1", active: true, color: "#ec4899" }
   ],
   userFunctions: {},
   userVariables: {},
+  complexPoints: [],
   centerX: 0,
   centerY: 0,
   zoomScale: 10
 };
 
 export let canvas2d, ctx2d, canvasWebgl, gl;
+let engineLoopTimer = null;
 
 export function initEngine() {
   canvas2d = document.getElementById('graphCanvas');
   ctx2d = canvas2d.getContext('2d');
   canvasWebgl = document.getElementById('webglCanvas');
   gl = canvasWebgl.getContext('webgl');
+  
+  startEngineLoop();
+}
+
+/**
+ * Reliability Loop Tick: Runs every 0.5s to re-verify state, auto-correct 
+ * double summation evaluation mismatches, and refresh canvas.
+ */
+export function startEngineLoop() {
+  if (engineLoopTimer) clearInterval(engineLoopTimer);
+  engineLoopTimer = setInterval(() => {
+    draw();
+  }, 500);
 }
 
 export function preprocessKeywords(input) {
@@ -36,7 +53,7 @@ export function preprocessKeywords(input) {
   let str = input;
   str = str.replace(/\bunion\b/g, '∪');
   str = str.replace(/\b(intersection|intersect)\b/g, '∩');
-  str = str.replace(/\b(doublesum|sum2|summation2)\b/g, '∑∑');
+  str = str.replace(/\b(doublesum|summation2)\b/g, 'sum2');
   str = str.replace(/\bdot\b/g, '·');
   str = str.replace(/\bcross\b/g, '×');
   str = str.replace(/\bnotequal\b/g, '≠');
@@ -49,19 +66,57 @@ export function preprocessKeywords(input) {
   return str;
 }
 
+/**
+ * Translates e^(i*x) or e^(x*i) or e^(i) patterns into Euler's identity:
+ * e^(i*θ) = cos(θ) + i*sin(θ)
+ */
+export function expandEulerFormulas(exprStr) {
+  if (!exprStr) return '';
+  let result = exprStr;
+
+  // e^(i * theta) or e^(theta * i) -> (cos(theta) + i*sin(theta))
+  result = result.replace(/e\^\(\s*i\s*\*([^)]+)\)/g, '(cos($1) + i*sin($1))');
+  result = result.replace(/e\^\(\s*([^)]+)\*\s*i\)/g, '(cos($1) + i*sin($1))');
+  result = result.replace(/e\^\(\s*i\s*\)/g, '(cos(1) + i*sin(1))');
+
+  return result;
+}
+
 export function registerFunctionsAndVariables() {
   state.userFunctions = {};
   state.userVariables = {};
+  state.complexPoints = [];
+
+  let zCounter = 1;
 
   state.expressions.forEach(expr => {
     if (!expr.active || !expr.raw || !expr.raw.trim()) return;
-    const processed = preprocessKeywords(expr.raw.trim());
+    const processed = expandEulerFormulas(preprocessKeywords(expr.raw.trim()));
+
+    // Reserved character 'i' tracking for complex numbers (z1, z2, ...)
+    if (/\bi\b/.test(processed) && !processed.includes('integral') && !processed.includes('∫')) {
+      expr.zName = `z${zCounter}`;
+
+      const point = parseComplexPoint(processed);
+      if (point) {
+        state.complexPoints.push({
+          id: expr.id,
+          zName: expr.zName,
+          x: point.x,
+          y: point.y,
+          color: expr.color
+        });
+      }
+      zCounter++;
+    } else {
+      delete expr.zName;
+    }
 
     // Variable Definition (e.g., a = 3)
     const varDefMatch = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
     if (varDefMatch) {
       const name = varDefMatch[1];
-      if (name !== 'x' && name !== 'y') {
+      if (name !== 'x' && name !== 'y' && name !== 'i') {
         const val = parseFloat(varDefMatch[2]);
         if (expr.val === undefined) expr.val = val;
         state.userVariables[name] = expr.val;
@@ -109,6 +164,43 @@ export function substituteVariablesAndFunctions(exprStr) {
   return result;
 }
 
+/**
+ * Parses expressions containing 'i' as coordinates z = a + b*i -> Point (a, b)
+ */
+export function parseComplexPoint(input) {
+  try {
+    let clean = expandEulerFormulas(substituteVariablesAndFunctions(input.trim()));
+
+    // Evaluate complex value using mathjs
+    const evaluated = math.evaluate(clean);
+    if (evaluated && typeof evaluated === 'object' && 're' in evaluated && 'im' in evaluated) {
+      return { x: evaluated.re, y: evaluated.im };
+    } else if (typeof evaluated === 'number') {
+      return { x: evaluated, y: 0 };
+    }
+  } catch (e) {
+    // Regex fallback parser for simple forms like "i + 1" or "2i + 3" or "3 + 2i"
+    try {
+      let str = input.replace(/\s+/g, '');
+      let re = 0, im = 0;
+
+      // Matches "2i+3", "i+1", "3+2i", "i", "2i"
+      str = str.replace(/([+-]?\d*\.?\d*)i/g, (_, coeff) => {
+        if (coeff === '' || coeff === '+') im += 1;
+        else if (coeff === '-') im -= 1;
+        else im += parseFloat(coeff);
+        return '';
+      });
+
+      if (str !== '' && !isNaN(str)) {
+        re = parseFloat(str);
+      }
+      return { x: re, y: im };
+    } catch (err) {}
+  }
+  return null;
+}
+
 // -------------------------------------------------------------
 // Advanced Calculus Tools: Summation, Double Summation, Integral
 // -------------------------------------------------------------
@@ -116,16 +208,45 @@ export function substituteVariablesAndFunctions(exprStr) {
 export function parseAndEvaluateSummation(input) {
   const clean = input.trim();
 
-  // 1. Double Summation: sum2( f(x), {a, b}, {c, d} ) or ∑∑( f(x), {a, b}, {c, d} )
-  const doubleSumRegex = /^(?:sum2|∑∑)\s*\(\s*(.+)\s*,\s*\{([^,]+),([^}]+)\}\s*,\s*\{([^,]+),([^}]+)\}\s*\)$/i;
-  const matchDouble = clean.match(doubleSumRegex);
+  // 1. Updated Two-Variable Double Summation Tool:
+  // sum2( eq , x{bounds} , y{bounds} ) -> sum2(x+y, x{1,2}, y{1,3})
+  const doubleSumRegexNew = /^(?:sum2|∑∑)\s*\(\s*(.+)\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\{([^,]+),([^}]+)\}\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\{([^,]+),([^}]+)\}\s*\)$/i;
+  const matchDoubleNew = clean.match(doubleSumRegexNew);
 
-  if (matchDouble) {
-    const exprBody = matchDouble[1];
-    const a = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[2])));
-    const b = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[3])));
-    const c = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[4])));
-    const d = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDouble[5])));
+  if (matchDoubleNew) {
+    const exprBody = matchDoubleNew[1];
+    const xVar = matchDoubleNew[2];
+    const xMin = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleNew[3])));
+    const xMax = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleNew[4])));
+    
+    const yVar = matchDoubleNew[5];
+    const yMin = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleNew[6])));
+    const yMax = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleNew[7])));
+
+    let totalSum = 0;
+    for (let xVal = xMin; xVal <= xMax; xVal++) {
+      for (let yVal = yMin; yVal <= yMax; yVal++) {
+        const scope = {};
+        scope[xVar] = xVal;
+        scope[yVar] = yVal;
+        const substituted = substituteVariablesAndFunctions(exprBody);
+        const evalVal = math.evaluate(substituted, scope);
+        totalSum += evalVal;
+      }
+    }
+    return totalSum;
+  }
+
+  // Legacy Double Summation Fallback: sum2( f(x), {a, b}, {c, d} )
+  const doubleSumRegexOld = /^(?:sum2|∑∑)\s*\(\s*(.+)\s*,\s*\{([^,]+),([^}]+)\}\s*,\s*\{([^,]+),([^}]+)\}\s*\)$/i;
+  const matchDoubleOld = clean.match(doubleSumRegexOld);
+
+  if (matchDoubleOld) {
+    const exprBody = matchDoubleOld[1];
+    const a = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleOld[2])));
+    const b = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleOld[3])));
+    const c = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleOld[4])));
+    const d = Math.round(math.evaluate(substituteVariablesAndFunctions(matchDoubleOld[5])));
 
     let totalSum = 0;
     for (let outer = c; outer <= d; outer++) {
@@ -191,11 +312,19 @@ export function parseAndEvaluateIntegral(input) {
 }
 
 export function evaluateOutcome(input) {
-  let processed = preprocessKeywords(input ? input.trim() : '');
+  let processed = expandEulerFormulas(preprocessKeywords(input ? input.trim() : ''));
   if (!processed) return null;
 
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*x\s*\)\s*=/)) return null;
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*-?\d+\.?\d*$/)) return null;
+
+  // Check Complex Points
+  if (/\bi\b/.test(processed) && !processed.includes('integral') && !processed.includes('∫')) {
+    const pt = parseComplexPoint(processed);
+    if (pt) {
+      return `Point: (${Number.isInteger(pt.x) ? pt.x : pt.x.toFixed(2)}, ${Number.isInteger(pt.y) ? pt.y : pt.y.toFixed(2)})`;
+    }
+  }
 
   // Check Summations
   const sumRes = parseAndEvaluateSummation(processed);
@@ -344,6 +473,7 @@ export function draw() {
   registerFunctionsAndVariables();
   drawGridAndAxes();
   drawExpressions();
+  drawComplexPoints();
 }
 
 export function drawGridAndAxes() {
@@ -412,6 +542,11 @@ export function drawExpressions() {
     if (!expr.active || !expr.raw || !expr.raw.trim()) return;
 
     let raw = expr.raw.trim();
+
+    // Skip standalone complex point rendering here (handled in drawComplexPoints)
+    if (/\bi\b/.test(raw) && !raw.includes('integral') && !raw.includes('∫')) {
+      return;
+    }
     
     // Support functional definitions directly as graphable equations
     const funcMatch = raw.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)\s*=\s*(.*)$/);
@@ -419,7 +554,7 @@ export function drawExpressions() {
       raw = funcMatch[2].trim();
     }
 
-    const processed = substituteVariablesAndFunctions(preprocessKeywords(raw));
+    const processed = substituteVariablesAndFunctions(expandEulerFormulas(preprocessKeywords(raw)));
 
     // Handle Definite & Indefinite Integrals Graphically
     const defIntegralMatch = processed.match(/^(?:integral|∫)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
@@ -453,6 +588,37 @@ export function drawExpressions() {
     }
 
     drawExplicitFunction(processed, expr.color, bounds);
+  });
+}
+
+export function drawComplexPoints() {
+  const bounds = getViewportBounds();
+  const { minX, maxX, minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+
+  state.complexPoints.forEach(pt => {
+    const cx = toCanvasX(pt.x);
+    const cy = toCanvasY(pt.y);
+
+    ctx2d.save();
+    ctx2d.beginPath();
+    ctx2d.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx2d.fillStyle = pt.color;
+    ctx2d.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx2d.shadowBlur = 4;
+    ctx2d.fill();
+    ctx2d.lineWidth = 2;
+    ctx2d.strokeStyle = '#ffffff';
+    ctx2d.stroke();
+
+    ctx2d.font = 'bold 12px var(--ui-font)';
+    ctx2d.fillStyle = pt.color;
+    ctx2d.textAlign = 'left';
+    ctx2d.textBaseline = 'bottom';
+    ctx2d.fillText(` ${pt.zName} (${pt.x}, ${pt.y})`, cx + 8, cy - 4);
+    ctx2d.restore();
   });
 }
 

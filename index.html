@@ -1,529 +1,280 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>MathPlotter Engine - Next Stable Build Development 1.2</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
-    <style>
-        :root {
-            --bg-color: #f8fafc;
-            --sidebar-bg: #ffffff;
-            --sidebar-width: 380px;
-            --primary-color: #3b82f6;
-            --text-color: #0f172a;
-            --text-secondary: #64748b;
-            --border-color: #e2e8f0;
-            --item-bg: #f8fafc;
-            --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MathPlotter - Build V1.3</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --panel-bg: #ffffff;
+      --text-color: #0f172a;
+      --border-color: #e2e8f0;
+      --accent-color: #2563eb;
+    }
 
-        body.dark-mode {
-            --bg-color: #0f172a;
-            --sidebar-bg: #1e293b;
-            --primary-color: #3b82f6;
-            --text-color: #f8fafc;
-            --text-secondary: #94a3b8;
-            --border-color: #334155;
-            --item-bg: #0f172a;
-        }
+    body.dark-mode {
+      --bg-color: #0f172a;
+      --panel-bg: #1e293b;
+      --text-color: #f8fafc;
+      --border-color: #334155;
+      --accent-color: #3b82f6;
+    }
 
-        * { touch-action: manipulation; box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
 
-        body {
-            margin: 0; padding: 0;
-            font-family: var(--ui-font);
-            display: flex; height: 100vh; height: 100dvh;
-            overflow: hidden; background-color: var(--bg-color);
-            color: var(--text-color);
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border-color);
+    }
 
-        #mobileBackdrop {
-            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.4); z-index: 19; opacity: 0;
-            transition: opacity 0.3s ease;
-        }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
 
-        #sidebar {
-            width: var(--sidebar-width);
-            background: var(--sidebar-bg); border-right: 1px solid var(--border-color);
-            display: flex; flex-direction: column; padding: 1rem;
-            z-index: 20; transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
-            box-shadow: 2px 0 8px rgba(0,0,0,0.03);
-        }
+    .version-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: #eff6ff;
+      color: var(--accent-color);
+      border: 1px solid #bfdbfe;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      white-space: normal;
+      word-break: break-word;
+      max-width: 100%;
+      display: inline-block;
+      text-align: center;
+    }
 
-        .sidebar-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 1rem; flex-shrink: 0;
-        }
-        .sidebar-header h2 { margin: 0; font-size: 1.25rem; color: var(--text-color); }
+    body.dark-mode .version-badge {
+      background: #1e3a8a;
+      color: #93c5fd;
+      border-color: #1d4ed8;
+    }
 
-        .close-sidebar-btn {
-            display: none; background: none; border: none;
-            font-size: 1.5rem; color: var(--text-secondary); cursor: pointer; padding: 4px;
-        }
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
 
-        .equation-list { flex-grow: 1; overflow-y: auto; margin-bottom: 1rem; padding-right: 4px; }
-        
-        .equation-item {
-            background: var(--item-bg); border: 1px solid var(--border-color); padding: 0.75rem;
-            border-radius: 8px; margin-bottom: 0.75rem;
-            display: flex; flex-direction: column; gap: 8px;
-            transition: box-shadow 0.2s ease, border-color 0.2s ease;
-            width: 100%; box-sizing: border-box;
-        }
+    #sidebar {
+      width: 340px;
+      background: var(--panel-bg);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+    }
 
-        .equation-item.variable-glow {
-            border-color: #3b82f6;
-            box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
-        }
+    .expression-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
 
-        .eq-top-row { 
-            display: flex; align-items: center; gap: 6px; 
-            width: 100%; min-width: 0;
-        }
-        
-        .eq-color { 
-            width: 16px; height: 16px; border-radius: 50%; border: none; 
-            cursor: pointer; flex-shrink: 0; padding: 0; background: none;
-        }
-        
-        .eq-input {
-            flex: 1 1 auto; min-width: 0; width: 100%;
-            border: 1px solid var(--border-color); border-radius: 6px;
-            padding: 6px 10px; font-family: "Georgia", "Times New Roman", serif;
-            font-style: italic; font-size: 0.95rem; outline: none; background: var(--sidebar-bg);
-            color: var(--text-color);
-        }
-        .eq-input:focus { border-color: var(--primary-color); }
+    .expr-card {
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 8px;
+    }
 
-        .z-tag {
-            font-family: monospace; font-size: 0.75rem; font-weight: bold;
-            color: #ec4899; background: rgba(236, 72, 153, 0.15);
-            padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
-        }
+    .expr-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
-        .gear-btn, .remove-btn {
-            background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-secondary); 
-            cursor: pointer; font-size: 0.9rem; padding: 4px 8px; border-radius: 6px;
-            flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
-        }
-        .gear-btn:hover, .remove-btn:hover { background: var(--border-color); color: var(--text-color); }
+    .expr-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-color);
+      font-family: monospace;
+      font-size: 14px;
+      outline: none;
+    }
 
-        .outcome-badge {
-            font-family: monospace; font-size: 0.8rem; color: #059669;
-            background: #ecfdf5; border: 1px solid #a7f3d0;
-            padding: 4px 8px; border-radius: 4px; word-break: break-all;
-        }
-        body.dark-mode .outcome-badge {
-            color: #34d399; background: #064e3b; border-color: #047857;
-        }
+    .outcome-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent-color);
+      margin-top: 4px;
+    }
 
-        .slider-control-row { display: flex; align-items: center; gap: 8px; width: 100%; }
-        .slider-control-row input[type=range] { flex: 1; min-width: 0; cursor: pointer; }
-        .slider-val { font-family: monospace; font-size: 0.8rem; width: 36px; text-align: right; flex-shrink: 0; color: var(--text-secondary); }
+    #canvas-viewport {
+      flex: 1;
+      position: relative;
+      background: var(--bg-color);
+    }
 
-        .settings-panel {
-            display: none; background: var(--sidebar-bg); border: 1px dashed var(--border-color);
-            padding: 6px 8px; border-radius: 6px; font-size: 0.8rem;
-            justify-content: space-between; align-items: center; gap: 8px; color: var(--text-secondary);
-        }
-        .settings-panel.open { display: flex; }
-        .settings-panel input { width: 55px; padding: 2px 4px; font-size: 0.8rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--item-bg); color: var(--text-color); }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
 
-        .add-eq-btn {
-            width: 100%; background: var(--item-bg); border: 1px dashed var(--border-color);
-            padding: 10px; border-radius: 6px; color: var(--text-secondary); font-weight: 600;
-            cursor: pointer; font-size: 0.85rem; margin-bottom: 1rem; text-align: center; flex-shrink: 0;
-        }
-        .add-eq-btn:hover { background: var(--border-color); color: var(--text-color); }
+    #coordsDisplay {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border-color);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11px;
+    }
 
-        .control-group { border-top: 1px solid var(--border-color); padding-top: 0.75rem; flex-shrink: 0; }
-        .control-group h3 { font-size: 0.85rem; margin: 0 0 0.5rem 0; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
-        
-        .calc-tools { display: flex; gap: 6px; flex-wrap: wrap; }
-        .calc-tools button {
-            background: var(--sidebar-bg); border: 1px solid var(--border-color); padding: 5px 8px;
-            border-radius: 4px; cursor: pointer; font-size: 0.75rem; color: var(--text-color);
-        }
+    .math-keypad {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      padding: 8px;
+      background: var(--panel-bg);
+      border-top: 1px solid var(--border-color);
+    }
 
-        #main-container { flex-grow: 1; position: relative; display: flex; flex-direction: column; }
-        #graph-wrapper { flex-grow: 1; position: relative; overflow: hidden; background: #ffffff; }
-        
-        #graphCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; touch-action: none; }
-        #webglCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; opacity: 0; pointer-events: none; }
+    .math-keypad button {
+      padding: 8px;
+      font-size: 12px;
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      border-radius: 4px;
+      cursor: pointer;
+    }
 
-        #topBar {
-            position: absolute; top: 12px; left: 12px; right: 12px;
-            display: flex; justify-content: space-between; align-items: center;
-            z-index: 10; pointer-events: none;
-        }
-        #topBar > * { pointer-events: auto; }
-
-        .icon-btn {
-            background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px;
-            padding: 8px 12px; font-weight: 600; color: var(--text-color);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; gap: 6px;
-        }
-
-        #bottom-bar {
-            height: 50px; background: var(--sidebar-bg); border-top: 1px solid var(--border-color);
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 1rem; z-index: 10; flex-shrink: 0;
-            transition: background-color 0.3s ease, border-color 0.3s ease;
-        }
-        .action-btns { display: flex; align-items: center; gap: 8px; }
-
-        #darkToggleBtn {
-            background: #24292e; color: #f8fafc; border: 1px solid var(--border-color);
-            padding: 8px 12px; border-radius: 6px; cursor: pointer;
-            font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;
-        }
-        body.dark-mode #darkToggleBtn {
-            background: #e2e8f0; color: #0f172a;
-        }
-
-        #downloadBtn {
-            background-color: var(--primary-color); color: #fff; border: none;
-            padding: 8px 14px; border-radius: 6px; cursor: pointer;
-            font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;
-        }
-        .viewport-coords { color: var(--text-secondary); font-size: 0.8rem; font-family: monospace; }
-        
-        .version-label {
-            font-family: monospace; font-size: 0.75rem; color: var(--text-secondary);
-            font-weight: bold; background: var(--item-bg); padding: 4px 8px;
-            border-radius: 4px; border: 1px solid var(--border-color);
-        }
-
-        @media (max-width: 768px) {
-            #sidebar {
-                position: fixed; top: 0; bottom: 0; left: 0;
-                transform: translateX(-100%); width: 88%; max-width: 360px;
-                box-shadow: 4px 0 12px rgba(0,0,0,0.15);
-            }
-            #sidebar.open { transform: translateX(0); }
-            #mobileBackdrop.open { display: block; opacity: 1; }
-            .close-sidebar-btn { display: block; }
-        }
-    </style>
+    @media (max-width: 768px) {
+      .main-container { flex-direction: column-reverse; }
+      #sidebar { width: 100%; height: 50%; }
+      .version-badge { font-size: 0.65rem; padding: 2px 6px; }
+    }
+  </style>
 </head>
 <body>
+  <header>
+    <div class="brand">
+      <h3>MathPlotter</h3>
+      <span class="version-badge">[ V1.3 ● 2026_8_28 ]</span>
+    </div>
+    <button id="themeToggle" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color);">Toggle Mode</button>
+  </header>
 
-    <div id="mobileBackdrop"></div>
-
+  <div class="main-container">
     <div id="sidebar">
-        <div class="sidebar-header">
-            <h2>Expressions</h2>
-            <button class="close-sidebar-btn" id="closeSidebarBtn">✕</button>
-        </div>
-        
-        <div class="equation-list" id="equationList"></div>
-
-        <button class="add-eq-btn" id="addExprBtn">+ Add Expression</button>
-
-        <div class="control-group">
-            <h3>Operations & Presets</h3>
-            <div class="calc-tools" id="presetContainer">
-                <button data-preset="sum(x, 1, 3)">Sum (Σ)</button>
-                <button data-preset="sum2(x+y, x{1,2}, y{1,3})">Double Sum (ΣΣ)</button>
-                <button data-preset="integral(x, 0, 4)">Definite Integral (∫)</button>
-                <button data-preset="integral(cos(x))">Indefinite Integral</button>
-                <button data-preset="i + 1">Imaginary Point (i+1)</button>
-                <button data-preset="e^(i*x)">Euler Form e^(i*x)</button>
-            </div>
-        </div>
+      <div class="expression-list" id="expressionList"></div>
+      <div class="math-keypad">
+        <button onclick="insertTool('text(\&quot;\&quot;, 0, 0)')">text("")</button>
+        <button onclick="insertTool('mag(vector(3,4))')">mag()</button>
+        <button onclick="insertTool('vector(1,2) + vector(3,4)')">vec +</button>
+        <button onclick="insertTool('vector(1,2,3) • vector(4,5,6)')">vec •</button>
+        <button onclick="insertTool('sum2(x+y, x{1,2}, y{1,3})')">sum2</button>
+        <button onclick="insertTool('integral(x, 0, 4)')">∫</button>
+      </div>
     </div>
 
-    <div id="main-container">
-        <div id="graph-wrapper">
-            <div id="topBar">
-                <button class="icon-btn" id="openSidebarBtn">
-                    ☰ Expressions
-                </button>
-            </div>
-
-            <canvas id="graphCanvas"></canvas>
-            <canvas id="webglCanvas"></canvas>
-        </div>
-
-        <div id="bottom-bar">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <span class="version-label">[ V1.2 ● 2026-8-27 ]</span>
-                <div class="viewport-coords" id="coordsDisplay">Center: (0.00, 0.00) Scale: 10.0u</div>
-            </div>
-            <div class="action-btns">
-                <button id="darkToggleBtn">🌙 Dark Mode</button>
-                <button id="downloadBtn">Snapshot</button>
-            </div>
-        </div>
+    <div id="canvas-viewport">
+      <canvas id="graphCanvas"></canvas>
+      <canvas id="webglCanvas" style="display:none;"></canvas>
+      <div id="coordsDisplay">Center: (0.00, 0.00) Scale: 10.0u</div>
     </div>
+  </div>
 
-    <script type="module">
-        import { 
-          initEngine, 
-          draw, 
-          state, 
-          palette, 
-          canvas2d, 
-          getViewportBounds,
-          evaluateOutcome,
-          preprocessKeywords
-        } from './mathengine.js';
+  <script type="module">
+    import { state, initEngine, draw, evaluateOutcome, bindExpressionInput, updateMathInput } from './mathengine.js';
 
-        const sidebar = document.getElementById('sidebar');
-        const backdrop = document.getElementById('mobileBackdrop');
+    window.addEventListener('DOMContentLoaded', () => {
+      initEngine();
+      renderUI();
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
 
-        function initApp() {
-            initEngine();
-            resizeCanvases();
-            window.addEventListener('resize', resizeCanvases);
+      document.getElementById('themeToggle').addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode');
+        draw();
+      });
+    });
 
-            document.getElementById('downloadBtn').addEventListener('click', downloadSnapshot);
-            document.getElementById('darkToggleBtn').addEventListener('click', toggleDarkMode);
-            document.getElementById('openSidebarBtn').addEventListener('click', openSidebar);
-            document.getElementById('closeSidebarBtn').addEventListener('click', closeSidebar);
-            backdrop.addEventListener('click', closeSidebar);
-            document.getElementById('addExprBtn').addEventListener('click', () => addExpression());
+    function resizeCanvas() {
+      const canvas = document.getElementById('graphCanvas');
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+      draw();
+    }
 
-            document.getElementById('presetContainer').addEventListener('click', (e) => {
-                const preset = e.target.getAttribute('data-preset');
-                if (preset) addExpression(preset);
-            });
+    function renderUI() {
+      const container = document.getElementById('expressionList');
+      container.innerHTML = '';
 
-            setupTouchAndPan();
-            renderSidebar();
-            draw();
+      state.expressions.forEach(expr => {
+        const card = document.createElement('div');
+        card.className = 'expr-card';
+
+        const inputRow = document.createElement('div');
+        inputRow.className = 'expr-input-row';
+
+        const colorDot = document.createElement('div');
+        colorDot.style.cssText = `width: 10px; height: 10px; border-radius: 50%; background: ${expr.color};`;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'expr-input';
+        input.value = expr.raw;
+        input.id = `input-expr-${expr.id}`;
+
+        inputRow.appendChild(colorDot);
+        inputRow.appendChild(input);
+        card.appendChild(inputRow);
+
+        const outcomeText = evaluateOutcome(expr.raw);
+        if (outcomeText) {
+          const outcomeEl = document.createElement('div');
+          outcomeEl.className = 'outcome-label';
+          outcomeEl.innerText = outcomeText;
+          card.appendChild(outcomeEl);
         }
 
-        function toggleDarkMode() {
-            document.body.classList.toggle('dark-mode');
-            const isDark = document.body.classList.contains('dark-mode');
-            document.getElementById('darkToggleBtn').innerText = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+        container.appendChild(card);
+        bindExpressionInput(input, expr.id);
+      });
+    }
+
+    window.insertTool = function(snippet) {
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl.tagName === 'INPUT') {
+        updateMathInput(activeEl, snippet);
+        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (state.expressions.length > 0) {
+        const firstInput = document.getElementById(`input-expr-${state.expressions[0].id}`);
+        if (firstInput) {
+          updateMathInput(firstInput, snippet);
+          firstInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
-
-        function renderSidebar() {
-            const list = document.getElementById('equationList');
-            list.innerHTML = '';
-
-            state.expressions.forEach(expr => {
-                const raw = expr.raw ? expr.raw.trim() : '';
-                const processed = preprocessKeywords(raw);
-                const isVar = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
-                const outcome = evaluateOutcome(raw);
-
-                const item = document.createElement('div');
-                item.className = `equation-item ${isVar ? 'variable-glow' : ''}`;
-                item.setAttribute('data-item-id', expr.id);
-                
-                let innerHTML = `
-                    <div class="eq-top-row">
-                        <input type="checkbox" ${expr.active ? 'checked' : ''} data-action="toggle">
-                        <input type="color" class="eq-color" value="${expr.color}" data-action="color">
-                        <input type="text" class="eq-input" placeholder="e.g. sum2(x+y, x{1,2}, y{1,3})" value="${expr.raw}" data-action="input">
-                        ${expr.zName ? `<span class="z-tag">${expr.zName}</span>` : ''}
-                        ${isVar ? `<button class="gear-btn" data-action="gear" title="Variable Settings">⚙</button>` : ''}
-                        <button class="remove-btn" data-action="remove" title="Remove Expression">✕</button>
-                    </div>
-                `;
-
-                if (outcome) {
-                    innerHTML += `<div class="outcome-badge">${outcome}</div>`;
-                }
-
-                if (isVar) {
-                    const min = expr.min !== undefined ? expr.min : -10;
-                    const max = expr.max !== undefined ? expr.max : 10;
-                    const val = expr.val !== undefined ? expr.val : parseFloat(isVar[2]);
-
-                    innerHTML += `
-                        <div class="slider-control-row">
-                            <input type="range" min="${min}" max="${max}" step="0.1" value="${val}" data-action="slider">
-                            <span class="slider-val">${val}</span>
-                        </div>
-                        <div class="settings-panel ${expr.showSettings ? 'open' : ''}">
-                            <label>Min: <input type="number" value="${min}" data-action="setMin"></label>
-                            <label>Max: <input type="number" value="${max}" data-action="setMax"></label>
-                        </div>
-                    `;
-                }
-
-                item.innerHTML = innerHTML;
-                list.appendChild(item);
-            });
-
-            setupSidebarEventListeners();
-        }
-
-        function setupSidebarEventListeners() {
-            const list = document.getElementById('equationList');
-
-            list.onchange = (e) => {
-                const item = e.target.closest('.equation-item');
-                if (!item) return;
-                const id = parseInt(item.getAttribute('data-item-id'));
-                const action = e.target.getAttribute('data-action');
-                const expr = state.expressions.find(e => e.id === id);
-                if (!expr) return;
-
-                if (action === 'toggle') {
-                    expr.active = e.target.checked;
-                    draw();
-                } else if (action === 'color') {
-                    expr.color = e.target.value;
-                    draw();
-                }
-            };
-
-            list.oninput = (e) => {
-                const item = e.target.closest('.equation-item');
-                if (!item) return;
-                const id = parseInt(item.getAttribute('data-item-id'));
-                const action = e.target.getAttribute('data-action');
-                const expr = state.expressions.find(e => e.id === id);
-                if (!expr) return;
-
-                if (action === 'input') {
-                    expr.raw = e.target.value;
-                    
-                    const processed = preprocessKeywords(expr.raw.trim());
-                    const isVar = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
-                    if (isVar) item.classList.add('variable-glow');
-                    else item.classList.remove('variable-glow');
-
-                    renderSidebar();
-                    draw();
-                } else if (action === 'slider') {
-                    expr.val = parseFloat(e.target.value);
-                    const valDisplay = item.querySelector('.slider-val');
-                    if (valDisplay) valDisplay.innerText = expr.val;
-                    draw();
-                } else if (action === 'setMin') {
-                    expr.min = parseFloat(e.target.value) || -10;
-                    draw();
-                } else if (action === 'setMax') {
-                    expr.max = parseFloat(e.target.value) || 10;
-                    draw();
-                }
-            };
-
-            list.onclick = (e) => {
-                const item = e.target.closest('.equation-item');
-                if (!item) return;
-                const id = parseInt(item.getAttribute('data-item-id'));
-                const action = e.target.getAttribute('data-action');
-                const expr = state.expressions.find(e => e.id === id);
-                if (!expr) return;
-
-                if (action === 'remove') {
-                    state.expressions = state.expressions.filter(e => e.id !== id);
-                    renderSidebar();
-                    draw();
-                } else if (action === 'gear') {
-                    expr.showSettings = !expr.showSettings;
-                    renderSidebar();
-                }
-            };
-        }
-
-        function addExpression(initialVal = "") {
-            const newId = Date.now();
-            const color = palette[state.expressions.length % palette.length];
-            state.expressions.push({ id: newId, raw: initialVal, active: true, color: color });
-            renderSidebar();
-            draw();
-        }
-
-        function openSidebar() { sidebar.classList.add('open'); backdrop.classList.add('open'); }
-        function closeSidebar() { sidebar.classList.remove('open'); backdrop.classList.remove('open'); }
-
-        function setupTouchAndPan() {
-            let isDragging = false;
-            let lastX = 0, lastY = 0;
-            const activePointers = new Map();
-            let initialPinchDistance = null;
-
-            canvas2d.addEventListener('pointerdown', e => {
-                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-                
-                if (activePointers.size === 1) {
-                    isDragging = true;
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                } else if (activePointers.size === 2) {
-                    isDragging = false;
-                    const pts = Array.from(activePointers.values());
-                    initialPinchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-                }
-                
-                canvas2d.setPointerCapture(e.pointerId);
-            });
-
-            canvas2d.addEventListener('pointermove', e => {
-                if (activePointers.has(e.pointerId)) {
-                    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-                }
-
-                if (activePointers.size === 2 && initialPinchDistance) {
-                    const pts = Array.from(activePointers.values());
-                    const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-                    
-                    if (currentDist > 0) {
-                        const factor = initialPinchDistance / currentDist;
-                        state.zoomScale *= Math.pow(factor, 0.05);
-                        draw();
-                    }
-                    return;
-                }
-
-                if (isDragging && activePointers.size === 1) {
-                    const bounds = getViewportBounds();
-                    const dx = e.clientX - lastX;
-                    const dy = e.clientY - lastY;
-                    
-                    state.centerX -= dx * bounds.unitsPerPixel;
-                    state.centerY += dy * bounds.unitsPerPixel;
-                    
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                    draw();
-                }
-            });
-
-            const stopPointer = (e) => {
-                activePointers.delete(e.pointerId);
-                if (activePointers.size < 2) initialPinchDistance = null;
-                if (activePointers.size === 0) isDragging = false;
-                try { canvas2d.releasePointerCapture(e.pointerId); } catch(err){}
-            };
-
-            canvas2d.addEventListener('pointerup', stopPointer);
-            canvas2d.addEventListener('pointercancel', stopPointer);
-
-            canvas2d.addEventListener('wheel', e => {
-                e.preventDefault();
-                const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-                state.zoomScale *= zoomFactor;
-                draw();
-            }, { passive: false });
-        }
-
-        function resizeCanvases() {
-            const wrapper = document.getElementById('graph-wrapper');
-            canvas2d.width = wrapper.clientWidth;
-            canvas2d.height = wrapper.clientHeight;
-            draw();
-        }
-
-        function downloadSnapshot() {
-            const link = document.createElement('a');
-            link.download = `graph_snapshot_${Date.now()}.png`;
-            link.href = canvas2d.toDataURL('image/png');
-            link.click();
-        }
-
-        initApp();
-    </script>
+      }
+    };
+  </script>
 </body>
 </html>

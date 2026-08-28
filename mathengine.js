@@ -1,7 +1,8 @@
 /**
- * mathengine.js - Engine with Y-Axis Labels, Touch Scaling, Function Plotting,
- * Single/Double Summations (sum, sum2, doublesum), Integrals (integral),
- * Imaginary Unit Support (i, e^(i*x)), and Persistent Keyboard Focus.
+ * mathengine.js - Build V1.3
+ * Includes UTF-16 Text Rendering, Magnitude (mag), Vector Algebra (2D/3D),
+ * Dot Product (• / ·), Y-Axis Labels, Touch Scaling, Function Plotting,
+ * Single/Double Summations, Integrals, Imaginary Unit Support, and Focus Preservation.
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -15,11 +16,14 @@ export const state = {
     { id: 3, raw: "sum(x, 1, 3)", active: true, color: palette[2] },
     { id: 4, raw: "sum2(x+y, x{1,2}, y{1,3})", active: true, color: palette[3] },
     { id: 5, raw: "integral(x, 0, 4)", active: true, color: palette[4] },
-    { id: 6, raw: "i + 1", active: true, color: "#ec4899" }
+    { id: 6, raw: "i + 1", active: true, color: "#ec4899" },
+    { id: 7, raw: "text(\"V1.3 MathPlotter\")", active: true, color: "#3b82f6" },
+    { id: 8, raw: "mag(vector(3,4))", active: true, color: "#22c55e" }
   ],
   userFunctions: {},
   userVariables: {},
   complexPoints: [],
+  textAnnotations: [],
   centerX: 0,
   centerY: 0,
   zoomScale: 10,
@@ -55,7 +59,6 @@ export function startEngineLoop() {
  * and preventing non-input controls from stealing focus on touch events.
  */
 export function setupMobileKeyboardFocus() {
-  // Prevent custom math buttons/keypads from blurring active text inputs
   document.querySelectorAll('.math-keypad, .calculus-toolbar, button').forEach(el => {
     el.addEventListener('pointerdown', (e) => {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') {
@@ -118,6 +121,7 @@ export function preprocessKeywords(input) {
   str = str.replace(/\bunion\b/g, '∪');
   str = str.replace(/\b(intersection|intersect)\b/g, '∩');
   str = str.replace(/\b(doublesum|summation2)\b/g, 'sum2');
+  str = str.replace(/•/g, '·');
   str = str.replace(/\bdot\b/g, '·');
   str = str.replace(/\bcross\b/g, '×');
   str = str.replace(/\bnotequal\b/g, '≠');
@@ -138,7 +142,6 @@ export function expandEulerFormulas(exprStr) {
   if (!exprStr) return '';
   let result = exprStr;
 
-  // e^(i * theta) or e^(theta * i) -> (cos(theta) + i*sin(theta))
   result = result.replace(/e\^\(\s*i\s*\*([^)]+)\)/g, '(cos($1) + i*sin($1))');
   result = result.replace(/e\^\(\s*([^)]+)\*\s*i\)/g, '(cos($1) + i*sin($1))');
   result = result.replace(/e\^\(\s*i\s*\)/g, '(cos(1) + i*sin(1))');
@@ -146,16 +149,72 @@ export function expandEulerFormulas(exprStr) {
   return result;
 }
 
+/**
+ * Decodes UTF-16 string inputs for rendering on graph canvas
+ */
+export function parseTextTool(exprStr) {
+  if (!exprStr) return null;
+  const textRegex = /^text\s*\(\s*(?:"([^"]*)"|'([^']*)')(?:\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*))?\s*\)$/i;
+  const match = exprStr.match(textRegex);
+
+  if (match) {
+    const rawContent = match[1] !== undefined ? match[1] : match[2];
+    const utf16Decoded = rawContent.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => {
+      return String.fromCharCode(parseInt(hex, 16));
+    });
+
+    const posX = match[3] !== undefined ? parseFloat(match[3]) : 0;
+    const posY = match[4] !== undefined ? parseFloat(match[4]) : 0;
+
+    return { text: utf16Decoded, x: posX, y: posY };
+  }
+  return null;
+}
+
+/**
+ * Evaluates the magnitude of 2D/3D vectors: mag(vector(a,b)) or mag(vector(a,b,c))
+ */
+export function evaluateMagnitude(exprStr) {
+  if (!exprStr) return null;
+  const magRegex = /^mag\s*\(\s*(?:vector\s*\(([^)]+)\)|\[([^\]]+)\])\s*\)$/i;
+  const match = exprStr.match(magRegex);
+
+  if (match) {
+    const rawItems = match[1] || match[2];
+    const components = rawItems.split(',').map(item => {
+      return math.evaluate(substituteVariablesAndFunctions(item.trim()));
+    });
+
+    const sumSq = components.reduce((acc, val) => acc + val * val, 0);
+    return Math.sqrt(sumSq);
+  }
+  return null;
+}
+
 export function registerFunctionsAndVariables() {
   state.userFunctions = {};
   state.userVariables = {};
   state.complexPoints = [];
+  state.textAnnotations = [];
 
   let zCounter = 1;
 
   state.expressions.forEach(expr => {
     if (!expr.active || !expr.raw || !expr.raw.trim()) return;
     const processed = expandEulerFormulas(preprocessKeywords(expr.raw.trim()));
+
+    // Check Text Annotations
+    const textParsed = parseTextTool(processed);
+    if (textParsed) {
+      state.textAnnotations.push({
+        id: expr.id,
+        text: textParsed.text,
+        x: textParsed.x,
+        y: textParsed.y,
+        color: expr.color
+      });
+      return;
+    }
 
     // Reserved character 'i' tracking for complex numbers (z1, z2, ...)
     if (/\bi\b/.test(processed) && !processed.includes('integral') && !processed.includes('∫')) {
@@ -202,13 +261,11 @@ export function substituteVariablesAndFunctions(exprStr) {
   if (!exprStr) return '';
   let result = exprStr;
 
-  // Substitute Constants/Variables
   for (const [varName, val] of Object.entries(state.userVariables)) {
     const varRegex = new RegExp(`\\b${varName}\\b`, 'g');
     result = result.replace(varRegex, `(${val})`);
   }
 
-  // Substitute Custom User Functions
   let changed = true;
   let iterations = 0;
   while (changed && iterations < 5) {
@@ -228,14 +285,10 @@ export function substituteVariablesAndFunctions(exprStr) {
   return result;
 }
 
-/**
- * Parses expressions containing 'i' as coordinates z = a + b*i -> Point (a, b)
- */
 export function parseComplexPoint(input) {
   try {
     let clean = expandEulerFormulas(substituteVariablesAndFunctions(input.trim()));
 
-    // Evaluate complex value using mathjs
     const evaluated = math.evaluate(clean);
     if (evaluated && typeof evaluated === 'object' && 're' in evaluated && 'im' in evaluated) {
       return { x: evaluated.re, y: evaluated.im };
@@ -243,12 +296,10 @@ export function parseComplexPoint(input) {
       return { x: evaluated, y: 0 };
     }
   } catch (e) {
-    // Regex fallback parser for simple forms like "i + 1" or "2i + 3" or "3 + 2i"
     try {
       let str = input.replace(/\s+/g, '');
       let re = 0, im = 0;
 
-      // Matches "2i+3", "i+1", "3+2i", "i", "2i"
       str = str.replace(/([+-]?\d*\.?\d*)i/g, (_, coeff) => {
         if (coeff === '' || coeff === '+') im += 1;
         else if (coeff === '-') im -= 1;
@@ -272,8 +323,6 @@ export function parseComplexPoint(input) {
 export function parseAndEvaluateSummation(input) {
   const clean = input.trim();
 
-  // 1. Updated Two-Variable Double Summation Tool:
-  // sum2( eq , x{bounds} , y{bounds} ) -> sum2(x+y, x{1,2}, y{1,3})
   const doubleSumRegexNew = /^(?:sum2|∑∑)\s*\(\s*(.+)\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\{([^,]+),([^}]+)\}\s*,\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\{([^,]+),([^}]+)\}\s*\)$/i;
   const matchDoubleNew = clean.match(doubleSumRegexNew);
 
@@ -301,7 +350,6 @@ export function parseAndEvaluateSummation(input) {
     return totalSum;
   }
 
-  // Legacy Double Summation Fallback: sum2( f(x), {a, b}, {c, d} )
   const doubleSumRegexOld = /^(?:sum2|∑∑)\s*\(\s*(.+)\s*,\s*\{([^,]+),([^}]+)\}\s*,\s*\{([^,]+),([^}]+)\}\s*\)$/i;
   const matchDoubleOld = clean.match(doubleSumRegexOld);
 
@@ -323,7 +371,6 @@ export function parseAndEvaluateSummation(input) {
     return totalSum;
   }
 
-  // 2. Single Summation: sum( f(x), a, b ) or ∑( f(x), a, b )
   const singleSumRegex = /^(?:sum|∑)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i;
   const matchSingle = clean.match(singleSumRegex);
 
@@ -347,7 +394,6 @@ export function parseAndEvaluateSummation(input) {
 export function parseAndEvaluateIntegral(input) {
   const clean = input.trim();
 
-  // Definite Integral: integral( f(x), a, b ) or ∫( f(x), a, b )
   const defIntegralRegex = /^(?:integral|∫)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i;
   const matchDef = clean.match(defIntegralRegex);
 
@@ -356,7 +402,7 @@ export function parseAndEvaluateIntegral(input) {
     const a = math.evaluate(substituteVariablesAndFunctions(matchDef[2]));
     const b = math.evaluate(substituteVariablesAndFunctions(matchDef[3]));
 
-    const n = 1000; // Integration steps (Simpson's Rule)
+    const n = 1000;
     const h = (b - a) / n;
     let sum = 0;
 
@@ -382,7 +428,19 @@ export function evaluateOutcome(input) {
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*x\s*\)\s*=/)) return null;
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*-?\d+\.?\d*$/)) return null;
 
-  // Check Complex Points
+  // Text Tool Parser
+  const textRes = parseTextTool(processed);
+  if (textRes) {
+    return `Text: "${textRes.text}" at (${textRes.x}, ${textRes.y})`;
+  }
+
+  // Magnitude Evaluator
+  const magRes = evaluateMagnitude(processed);
+  if (magRes !== null) {
+    return `Magnitude: ${Number.isInteger(magRes) ? magRes : magRes.toFixed(4)}`;
+  }
+
+  // Complex Points Check
   if (/\bi\b/.test(processed) && !processed.includes('integral') && !processed.includes('∫')) {
     const pt = parseComplexPoint(processed);
     if (pt) {
@@ -390,13 +448,13 @@ export function evaluateOutcome(input) {
     }
   }
 
-  // Check Summations
+  // Summations Check
   const sumRes = parseAndEvaluateSummation(processed);
   if (sumRes !== null) {
     return `Outcome: ${Number.isInteger(sumRes) ? sumRes : sumRes.toFixed(4)}`;
   }
 
-  // Check Definite Integral
+  // Definite Integral Check
   const intRes = parseAndEvaluateIntegral(processed);
   if (intRes !== null) {
     return `Outcome: ${Number.isInteger(intRes) ? intRes : intRes.toFixed(4)}`;
@@ -441,20 +499,37 @@ export function evaluateOutcome(input) {
 export function evaluateVectorOrListExpr(input) {
   let expr = preprocessKeywords(input);
 
-  expr = expr.replace(/list\s*\{([^}]+)\}/g, (_, items) => {
-    const arr = items.split(',').map(x => math.evaluate(substituteVariablesAndFunctions(x.trim())));
-    return `[${arr.join(',')}]`;
-  });
-
+  // Vector parsing support: vector(a,b) or vector(a,b,c)
   expr = expr.replace(/vector\s*\(([^)]+)\)/g, (_, items) => {
     const arr = items.split(',').map(x => math.evaluate(substituteVariablesAndFunctions(x.trim())));
     return `[${arr.join(',')}]`;
   });
 
+  expr = expr.replace(/list\s*\{([^}]+)\}/g, (_, items) => {
+    const arr = items.split(',').map(x => math.evaluate(substituteVariablesAndFunctions(x.trim())));
+    return `[${arr.join(',')}]`;
+  });
+
+  // Vector Addition: [a,b] + [c,d] or [a,b,c] + [i,j,k]
+  if (expr.includes('+') && expr.includes('[')) {
+    try {
+      const parts = expr.split('+').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
+      if (Array.isArray(parts[0]) && Array.isArray(parts[1]) && parts[0].length === parts[1].length) {
+        const sumVec = parts[0].map((val, idx) => val + parts[1][idx]);
+        return { type: 'vector', value: sumVec };
+      }
+    } catch(e){}
+  }
+
+  // Vector Subtraction
   if (expr.includes('-') && expr.includes('[')) {
     try {
       const parts = expr.split('-').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
       if (Array.isArray(parts[0]) && Array.isArray(parts[1])) {
+        if (parts[0].length === parts[1].length) {
+          const diffVec = parts[0].map((val, idx) => val - parts[1][idx]);
+          return { type: 'vector', value: diffVec };
+        }
         const diffSet = parts[0].filter(x => !parts[1].includes(x));
         return { type: 'list', value: diffSet };
       }
@@ -479,6 +554,7 @@ export function evaluateVectorOrListExpr(input) {
     } catch(e){}
   }
 
+  // Vector Dot Product (• / ·)
   if (expr.includes('·')) {
     try {
       const parts = expr.split('·').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
@@ -489,6 +565,7 @@ export function evaluateVectorOrListExpr(input) {
     } catch(e){}
   }
 
+  // Vector Cross Product (2D/3D)
   if (expr.includes('×')) {
     try {
       const parts = expr.split('×').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
@@ -538,6 +615,7 @@ export function draw() {
   drawGridAndAxes();
   drawExpressions();
   drawComplexPoints();
+  drawTextAnnotations();
 }
 
 export function drawGridAndAxes() {
@@ -607,12 +685,12 @@ export function drawExpressions() {
 
     let raw = expr.raw.trim();
 
-    // Skip standalone complex point rendering here (handled in drawComplexPoints)
+    if (parseTextTool(raw)) return;
+
     if (/\bi\b/.test(raw) && !raw.includes('integral') && !raw.includes('∫')) {
       return;
     }
     
-    // Support functional definitions directly as graphable equations
     const funcMatch = raw.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)\s*=\s*(.*)$/);
     if (funcMatch) {
       raw = funcMatch[2].trim();
@@ -620,7 +698,6 @@ export function drawExpressions() {
 
     const processed = substituteVariablesAndFunctions(expandEulerFormulas(preprocessKeywords(raw)));
 
-    // Handle Definite & Indefinite Integrals Graphically
     const defIntegralMatch = processed.match(/^(?:integral|∫)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
     if (defIntegralMatch) {
       drawDefiniteIntegralArea(defIntegralMatch[1], defIntegralMatch[2], defIntegralMatch[3], expr.color, bounds);
@@ -633,7 +710,7 @@ export function drawExpressions() {
       return;
     }
 
-    if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×')) {
+    if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×') || processed.includes('+')) {
       const res = evaluateVectorOrListExpr(processed);
       if (res && res.type === 'vector') renderVector(res.value[0], res.value[1] || 0, expr.color, bounds);
       return;
@@ -677,11 +754,34 @@ export function drawComplexPoints() {
     ctx2d.strokeStyle = '#ffffff';
     ctx2d.stroke();
 
-    ctx2d.font = 'bold 12px var(--ui-font)';
+    ctx2d.font = 'bold 12px sans-serif';
     ctx2d.fillStyle = pt.color;
     ctx2d.textAlign = 'left';
     ctx2d.textBaseline = 'bottom';
     ctx2d.fillText(` ${pt.zName} (${pt.x}, ${pt.y})`, cx + 8, cy - 4);
+    ctx2d.restore();
+  });
+}
+
+export function drawTextAnnotations() {
+  const bounds = getViewportBounds();
+  const { minX, maxX, minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+
+  state.textAnnotations.forEach(item => {
+    const cx = toCanvasX(item.x);
+    const cy = toCanvasY(item.y);
+
+    ctx2d.save();
+    ctx2d.font = 'bold 14px sans-serif';
+    ctx2d.fillStyle = item.color;
+    ctx2d.textAlign = 'center';
+    ctx2d.textBaseline = 'middle';
+    ctx2d.shadowColor = 'rgba(255, 255, 255, 0.8)';
+    ctx2d.shadowBlur = 3;
+    ctx2d.fillText(item.text, cx, cy);
     ctx2d.restore();
   });
 }
@@ -697,7 +797,7 @@ function drawDefiniteIntegralArea(exprStr, aStr, bStr, color, bounds) {
     const b = math.evaluate(substituteVariablesAndFunctions(bStr));
 
     ctx2d.save();
-    ctx2d.fillStyle = color + "33"; // Semi-transparent fill
+    ctx2d.fillStyle = color + "33";
     ctx2d.strokeStyle = color;
     ctx2d.lineWidth = 2;
 

@@ -1,8 +1,5 @@
 /**
- * mathengine.js - Build V1.3
- * Includes UTF-16 Text Rendering, Magnitude (mag), Vector Algebra (2D/3D),
- * Dot Product (• / ·), Y-Axis Labels, Touch Scaling, Function Plotting,
- * Single/Double Summations, Integrals, Imaginary Unit Support, and Focus Preservation.
+ * mathengine.js - Comprehensive Unified Computation & Graphics Engine
  */
 
 export const palette = ["#3b82f6", "#ef4444", "#22c55e", "#a855f7", "#eab308"];
@@ -11,14 +8,11 @@ export const state = {
   webglEnabled: false,
   gridStyle: 'square',
   expressions: [
-    { id: 1, raw: "a = 3", active: true, color: palette[0], min: -10, max: 10, val: 3 },
-    { id: 2, raw: "f(x) = sin(a * x)", active: true, color: palette[1] },
-    { id: 3, raw: "sum(x, 1, 3)", active: true, color: palette[2] },
+    { id: 1, raw: "y = x^2 - 4", active: true, color: palette[0] },
+    { id: 2, raw: "integral(x, 1, 3)", active: true, color: palette[1] },
+    { id: 3, raw: "vector(4, 3)", active: true, color: palette[2] },
     { id: 4, raw: "sum2(x+y, x{1,2}, y{1,3})", active: true, color: palette[3] },
-    { id: 5, raw: "integral(x, 0, 4)", active: true, color: palette[4] },
-    { id: 6, raw: "i + 1", active: true, color: "#ec4899" },
-    { id: 7, raw: "text(\"V1.3 MathPlotter\")", active: true, color: "#3b82f6" },
-    { id: 8, raw: "mag(vector(3,4))", active: true, color: "#22c55e" }
+    { id: 5, raw: "text(\"Unified Engine\", 0, 2)", active: true, color: palette[4] }
   ],
   userFunctions: {},
   userVariables: {},
@@ -38,15 +32,11 @@ export function initEngine() {
   ctx2d = canvas2d.getContext('2d');
   canvasWebgl = document.getElementById('webglCanvas');
   gl = canvasWebgl.getContext('webgl');
-  
+
   setupMobileKeyboardFocus();
   startEngineLoop();
 }
 
-/**
- * Reliability Loop Tick: Runs every 0.5s to re-verify state, auto-correct 
- * double summation evaluation mismatches, and refresh canvas.
- */
 export function startEngineLoop() {
   if (engineLoopTimer) clearInterval(engineLoopTimer);
   engineLoopTimer = setInterval(() => {
@@ -54,12 +44,8 @@ export function startEngineLoop() {
   }, 500);
 }
 
-/**
- * Fixes mobile keyboard collapse by debouncing structural re-renders
- * and preventing non-input controls from stealing focus on touch events.
- */
 export function setupMobileKeyboardFocus() {
-  document.querySelectorAll('.math-keypad, .calculus-toolbar, button').forEach(el => {
+  document.querySelectorAll('.math-keypad, .calc-tools, button').forEach(el => {
     el.addEventListener('pointerdown', (e) => {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') {
         e.preventDefault();
@@ -68,9 +54,6 @@ export function setupMobileKeyboardFocus() {
   });
 }
 
-/**
- * Safely updates input value while maintaining selection range and focus context.
- */
 export function updateMathInput(inputEl, newValue) {
   if (!inputEl) return;
   const isFocused = (document.activeElement === inputEl);
@@ -89,9 +72,6 @@ export function updateMathInput(inputEl, newValue) {
   }
 }
 
-/**
- * Debounced evaluation wrapper to ensure mobile keyboard paint cycles aren't dropped.
- */
 export function bindExpressionInput(inputEl, exprId) {
   if (!inputEl) return;
 
@@ -134,24 +114,15 @@ export function preprocessKeywords(input) {
   return str;
 }
 
-/**
- * Translates e^(i*x) or e^(x*i) or e^(i) patterns into Euler's identity:
- * e^(i*θ) = cos(θ) + i*sin(θ)
- */
 export function expandEulerFormulas(exprStr) {
   if (!exprStr) return '';
   let result = exprStr;
-
   result = result.replace(/e\^\(\s*i\s*\*([^)]+)\)/g, '(cos($1) + i*sin($1))');
   result = result.replace(/e\^\(\s*([^)]+)\*\s*i\)/g, '(cos($1) + i*sin($1))');
   result = result.replace(/e\^\(\s*i\s*\)/g, '(cos(1) + i*sin(1))');
-
   return result;
 }
 
-/**
- * Decodes UTF-16 string inputs for rendering on graph canvas
- */
 export function parseTextTool(exprStr) {
   if (!exprStr) return null;
   const textRegex = /^text\s*\(\s*(?:"([^"]*)"|'([^']*)')(?:\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*))?\s*\)$/i;
@@ -171,9 +142,6 @@ export function parseTextTool(exprStr) {
   return null;
 }
 
-/**
- * Evaluates the magnitude of 2D/3D vectors: mag(vector(a,b)) or mag(vector(a,b,c))
- */
 export function evaluateMagnitude(exprStr) {
   if (!exprStr) return null;
   const magRegex = /^mag\s*\(\s*(?:vector\s*\(([^)]+)\)|\[([^\]]+)\])\s*\)$/i;
@@ -203,31 +171,20 @@ export function registerFunctionsAndVariables() {
     if (!expr.active || !expr.raw || !expr.raw.trim()) return;
     const processed = expandEulerFormulas(preprocessKeywords(expr.raw.trim()));
 
-    // Check Text Annotations
     const textParsed = parseTextTool(processed);
     if (textParsed) {
       state.textAnnotations.push({
-        id: expr.id,
-        text: textParsed.text,
-        x: textParsed.x,
-        y: textParsed.y,
-        color: expr.color
+        id: expr.id, text: textParsed.text, x: textParsed.x, y: textParsed.y, color: expr.color
       });
       return;
     }
 
-    // Reserved character 'i' tracking for complex numbers (z1, z2, ...)
     if (/\bi\b/.test(processed) && !processed.includes('integral') && !processed.includes('∫')) {
       expr.zName = `z${zCounter}`;
-
       const point = parseComplexPoint(processed);
       if (point) {
         state.complexPoints.push({
-          id: expr.id,
-          zName: expr.zName,
-          x: point.x,
-          y: point.y,
-          color: expr.color
+          id: expr.id, zName: expr.zName, x: point.x, y: point.y, color: expr.color
         });
       }
       zCounter++;
@@ -235,7 +192,6 @@ export function registerFunctionsAndVariables() {
       delete expr.zName;
     }
 
-    // Variable Definition (e.g., a = 3)
     const varDefMatch = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+\.?\d*)$/);
     if (varDefMatch) {
       const name = varDefMatch[1];
@@ -247,7 +203,6 @@ export function registerFunctionsAndVariables() {
       }
     }
 
-    // Function Definition (e.g., f(x) = sin(x))
     const funcDefMatch = processed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)\s*=\s*(.*)$/);
     if (funcDefMatch) {
       const name = funcDefMatch[1];
@@ -288,7 +243,6 @@ export function substituteVariablesAndFunctions(exprStr) {
 export function parseComplexPoint(input) {
   try {
     let clean = expandEulerFormulas(substituteVariablesAndFunctions(input.trim()));
-
     const evaluated = math.evaluate(clean);
     if (evaluated && typeof evaluated === 'object' && 're' in evaluated && 'im' in evaluated) {
       return { x: evaluated.re, y: evaluated.im };
@@ -299,26 +253,64 @@ export function parseComplexPoint(input) {
     try {
       let str = input.replace(/\s+/g, '');
       let re = 0, im = 0;
-
       str = str.replace(/([+-]?\d*\.?\d*)i/g, (_, coeff) => {
         if (coeff === '' || coeff === '+') im += 1;
         else if (coeff === '-') im -= 1;
         else im += parseFloat(coeff);
         return '';
       });
-
-      if (str !== '' && !isNaN(str)) {
-        re = parseFloat(str);
-      }
+      if (str !== '' && !isNaN(str)) re = parseFloat(str);
       return { x: re, y: im };
     } catch (err) {}
   }
   return null;
 }
 
-// -------------------------------------------------------------
-// Advanced Calculus Tools: Summation, Double Summation, Integral
-// -------------------------------------------------------------
+export function solveLinearEquation(input) {
+  const parts = input.split('=').map(s => s.trim());
+  if (parts.length !== 2) throw new Error("Invalid equation structure");
+
+  const varMatch = input.match(/[a-zA-Z]/);
+  const varChar = varMatch ? varMatch[0] : 'x';
+
+  function parseLinearSide(exprStr) {
+    let expr = exprStr.replace(/\s+/g, '');
+    expr = expr.replace(new RegExp(`(?<=[+-]|^)${varChar}`, 'g'), `1${varChar}`);
+    expr = expr.replace(new RegExp(`(?<=[+-]|^)-${varChar}`, 'g'), `-1${varChar}`);
+
+    const tokens = expr.match(/[+-]?[^+-]+/g) || [];
+    let coeff = 0;
+    let constant = 0;
+
+    for (const token of tokens) {
+      if (token.includes(varChar)) {
+        const val = parseFloat(token.replace(varChar, ''));
+        coeff += isNaN(val) ? 1 : val;
+      } else {
+        const val = parseFloat(token);
+        if (!isNaN(val)) constant += val;
+      }
+    }
+    return { coeff, constant };
+  }
+
+  const left = parseLinearSide(parts[0]);
+  const right = parseLinearSide(parts[1]);
+
+  const netCoeff = left.coeff - right.coeff;
+  const netConst = right.constant - left.constant;
+
+  if (Math.abs(netCoeff) < 1e-12) {
+    if (Math.abs(netConst) < 1e-12) return { varName: varChar, value: "Infinite solutions" };
+    return { varName: varChar, value: "No solution" };
+  }
+
+  const xVal = netConst / netCoeff;
+  return { 
+    varName: varChar, 
+    value: Number.isInteger(xVal) ? xVal : parseFloat(xVal.toFixed(6)) 
+  };
+}
 
 export function parseAndEvaluateSummation(input) {
   const clean = input.trim();
@@ -401,24 +393,45 @@ export function parseAndEvaluateIntegral(input) {
     const exprBody = matchDef[1];
     const a = math.evaluate(substituteVariablesAndFunctions(matchDef[2]));
     const b = math.evaluate(substituteVariablesAndFunctions(matchDef[3]));
-
-    const n = 1000;
-    const h = (b - a) / n;
-    let sum = 0;
-
-    const evalAt = (val) => {
-      const substituted = substituteVariablesAndFunctions(exprBody);
-      return math.evaluate(substituted, { x: val });
-    };
-
-    sum += evalAt(a) + evalAt(b);
-    for (let i = 1; i < n; i += 2) sum += 4 * evalAt(a + i * h);
-    for (let i = 2; i < n - 1; i += 2) sum += 2 * evalAt(a + i * h);
-
-    return (h / 3) * sum;
+    return integrateNumerical(substituteVariablesAndFunctions(exprBody), a, b);
   }
 
   return null;
+}
+
+export function integrateNumerical(funcExpr, a, b, n = 1000) {
+  if (n % 2 !== 0) n += 1;
+  const h = (b - a) / n;
+
+  const f = (xVal) => {
+    try {
+      return math.evaluate(funcExpr, { x: xVal });
+    } catch (e) {
+      return NaN;
+    }
+  };
+
+  let sum = f(a) + f(b);
+
+  for (let i = 1; i < n; i++) {
+    const x = a + i * h;
+    const weight = i % 2 === 0 ? 2 : 4;
+    const fx = f(x);
+    if (isNaN(fx)) return integrateTrapezoidal(f, a, b, n);
+    sum += weight * fx;
+  }
+
+  const result = (h / 3) * sum;
+  return Number.isInteger(result) ? result : parseFloat(result.toFixed(6));
+}
+
+function integrateTrapezoidal(f, a, b, n) {
+  const h = (b - a) / n;
+  let sum = 0.5 * (f(a) + f(b));
+  for (let i = 1; i < n; i++) {
+    sum += f(a + i * h);
+  }
+  return parseFloat((sum * h).toFixed(6));
 }
 
 export function evaluateOutcome(input) {
@@ -428,37 +441,22 @@ export function evaluateOutcome(input) {
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*x\s*\)\s*=/)) return null;
   if (processed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*-?\d+\.?\d*$/)) return null;
 
-  // Text Tool Parser
   const textRes = parseTextTool(processed);
-  if (textRes) {
-    return `Text: "${textRes.text}" at (${textRes.x}, ${textRes.y})`;
-  }
+  if (textRes) return `Text: "${textRes.text}" at (${textRes.x}, ${textRes.y})`;
 
-  // Magnitude Evaluator
   const magRes = evaluateMagnitude(processed);
-  if (magRes !== null) {
-    return `Magnitude: ${Number.isInteger(magRes) ? magRes : magRes.toFixed(4)}`;
-  }
+  if (magRes !== null) return `Magnitude: ${Number.isInteger(magRes) ? magRes : magRes.toFixed(4)}`;
 
-  // Complex Points Check
   if (/\bi\b/.test(processed) && !processed.includes('integral') && !processed.includes('∫')) {
     const pt = parseComplexPoint(processed);
-    if (pt) {
-      return `Point: (${Number.isInteger(pt.x) ? pt.x : pt.x.toFixed(2)}, ${Number.isInteger(pt.y) ? pt.y : pt.y.toFixed(2)})`;
-    }
+    if (pt) return `Point: (${Number.isInteger(pt.x) ? pt.x : pt.x.toFixed(2)}, ${Number.isInteger(pt.y) ? pt.y : pt.y.toFixed(2)})`;
   }
 
-  // Summations Check
   const sumRes = parseAndEvaluateSummation(processed);
-  if (sumRes !== null) {
-    return `Outcome: ${Number.isInteger(sumRes) ? sumRes : sumRes.toFixed(4)}`;
-  }
+  if (sumRes !== null) return `Outcome: ${Number.isInteger(sumRes) ? sumRes : sumRes.toFixed(4)}`;
 
-  // Definite Integral Check
   const intRes = parseAndEvaluateIntegral(processed);
-  if (intRes !== null) {
-    return `Outcome: ${Number.isInteger(intRes) ? intRes : intRes.toFixed(4)}`;
-  }
+  if (intRes !== null) return `Outcome: ${Number.isInteger(intRes) ? intRes : intRes.toFixed(4)}`;
 
   processed = substituteVariablesAndFunctions(processed);
 
@@ -473,6 +471,11 @@ export function evaluateOutcome(input) {
     const parts = processed.split('=');
     const lhs = parts[0].trim();
     const rhs = parts[1].trim();
+
+    try {
+      const solved = solveLinearEquation(processed);
+      if (typeof solved.value === 'number') return `${solved.varName} = ${solved.value}`;
+    } catch(e) {}
 
     try {
       const eqStr = `(${lhs}) - (${rhs})`;
@@ -499,7 +502,6 @@ export function evaluateOutcome(input) {
 export function evaluateVectorOrListExpr(input) {
   let expr = preprocessKeywords(input);
 
-  // Vector parsing support: vector(a,b) or vector(a,b,c)
   expr = expr.replace(/vector\s*\(([^)]+)\)/g, (_, items) => {
     const arr = items.split(',').map(x => math.evaluate(substituteVariablesAndFunctions(x.trim())));
     return `[${arr.join(',')}]`;
@@ -510,7 +512,6 @@ export function evaluateVectorOrListExpr(input) {
     return `[${arr.join(',')}]`;
   });
 
-  // Vector Addition: [a,b] + [c,d] or [a,b,c] + [i,j,k]
   if (expr.includes('+') && expr.includes('[')) {
     try {
       const parts = expr.split('+').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
@@ -521,7 +522,6 @@ export function evaluateVectorOrListExpr(input) {
     } catch(e){}
   }
 
-  // Vector Subtraction
   if (expr.includes('-') && expr.includes('[')) {
     try {
       const parts = expr.split('-').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
@@ -554,7 +554,6 @@ export function evaluateVectorOrListExpr(input) {
     } catch(e){}
   }
 
-  // Vector Dot Product (• / ·)
   if (expr.includes('·')) {
     try {
       const parts = expr.split('·').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
@@ -565,7 +564,6 @@ export function evaluateVectorOrListExpr(input) {
     } catch(e){}
   }
 
-  // Vector Cross Product (2D/3D)
   if (expr.includes('×')) {
     try {
       const parts = expr.split('×').map(p => math.evaluate(substituteVariablesAndFunctions(p.trim())));
@@ -631,7 +629,7 @@ export function drawGridAndAxes() {
   const scale = h / (maxY - minY);
   const step = calculateDynamicStep(scale);
 
-  ctx2d.strokeStyle = '#e2e8f0';
+  ctx2d.strokeStyle = document.body.classList.contains('dark-mode') ? '#334155' : '#e2e8f0';
   ctx2d.lineWidth = 1;
 
   if (state.gridStyle === 'square') {
@@ -643,18 +641,52 @@ export function drawGridAndAxes() {
     for (let y = startY; y <= maxY; y += step) {
       ctx2d.beginPath(); ctx2d.moveTo(0, toCanvasY(y)); ctx2d.lineTo(w, toCanvasY(y)); ctx2d.stroke();
     }
+  } else if (state.gridStyle === 'polar') {
+    const maxRadius = Math.hypot(Math.max(Math.abs(minX), Math.abs(maxX)), Math.max(Math.abs(minY), Math.abs(maxY)));
+    for (let r = step; r <= maxRadius; r += step) {
+      ctx2d.beginPath(); ctx2d.arc(toCanvasX(0), toCanvasY(0), r / bounds.unitsPerPixel, 0, 2 * Math.PI); ctx2d.stroke();
+    }
+    for (let a = 0; a < 360; a += 30) {
+      const rad = (a * Math.PI) / 180;
+      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(0), toCanvasY(0));
+      ctx2d.lineTo(toCanvasX(Math.cos(rad) * maxRadius), toCanvasY(Math.sin(rad) * maxRadius)); ctx2d.stroke();
+    }
+  } else if (state.gridStyle === 'isometric') {
+    const s = step * 1.5;
+    const diagMax = (Math.abs(maxX - minX) + Math.abs(maxY - minY)) * 2;
+    const startX = Math.floor(minX / s) * s;
+    for (let x = startX; x <= maxX; x += s) {
+      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(x), 0); ctx2d.lineTo(toCanvasX(x), h); ctx2d.stroke();
+    }
+    const tan30 = Math.tan(Math.PI / 6);
+    for (let c = -diagMax; c <= diagMax; c += s) {
+      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(minX), toCanvasY(tan30 * minX + c)); ctx2d.lineTo(toCanvasX(maxX), toCanvasY(tan30 * maxX + c)); ctx2d.stroke();
+      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(minX), toCanvasY(-tan30 * minX + c)); ctx2d.lineTo(toCanvasX(maxX), toCanvasY(-tan30 * maxX + c)); ctx2d.stroke();
+    }
+  } else if (state.gridStyle === 'triangular') {
+    const s = step * 1.5;
+    const hStep = s * (Math.sqrt(3) / 2);
+    const diagMax = (Math.abs(maxX - minX) + Math.abs(maxY - minY)) * 2;
+    const startY = Math.floor(minY / hStep) * hStep;
+    for (let y = startY; y <= maxY; y += hStep) {
+      ctx2d.beginPath(); ctx2d.moveTo(0, toCanvasY(y)); ctx2d.lineTo(w, toCanvasY(y)); ctx2d.stroke();
+    }
+    const tan60 = Math.tan(Math.PI / 3);
+    for (let c = -diagMax; c <= diagMax; c += s) {
+      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(minX), toCanvasY(tan60 * minX + c)); ctx2d.lineTo(toCanvasX(maxX), toCanvasY(tan60 * maxX + c)); ctx2d.stroke();
+      ctx2d.beginPath(); ctx2d.moveTo(toCanvasX(minX), toCanvasY(-tan60 * minX + c)); ctx2d.lineTo(toCanvasX(maxX), toCanvasY(-tan60 * maxX + c)); ctx2d.stroke();
+    }
   }
 
-  ctx2d.strokeStyle = '#475569';
+  ctx2d.strokeStyle = document.body.classList.contains('dark-mode') ? '#94a3b8' : '#475569';
   ctx2d.lineWidth = 1.5;
   const yAxis = toCanvasY(0), xAxis = toCanvasX(0);
   if (yAxis >= 0 && yAxis <= h) { ctx2d.beginPath(); ctx2d.moveTo(0, yAxis); ctx2d.lineTo(w, yAxis); ctx2d.stroke(); }
   if (xAxis >= 0 && xAxis <= w) { ctx2d.beginPath(); ctx2d.moveTo(xAxis, 0); ctx2d.lineTo(xAxis, h); ctx2d.stroke(); }
 
   ctx2d.font = '11px monospace';
-  ctx2d.fillStyle = '#64748b';
+  ctx2d.fillStyle = document.body.classList.contains('dark-mode') ? '#94a3b8' : '#64748b';
 
-  // Render X-Axis Numbers
   ctx2d.textAlign = 'center';
   ctx2d.textBaseline = 'top';
   const startXNum = Math.floor(minX / step) * step;
@@ -663,7 +695,6 @@ export function drawGridAndAxes() {
     ctx2d.fillText(Number.isInteger(xVal) ? xVal.toString() : xVal.toFixed(2), toCanvasX(xVal), Math.min(Math.max(yAxis + 6, 8), h - 20));
   }
 
-  // Render Y-Axis Numbers
   ctx2d.textAlign = 'right';
   ctx2d.textBaseline = 'middle';
   const startYNum = Math.floor(minY / step) * step;
@@ -684,19 +715,19 @@ export function drawExpressions() {
     if (!expr.active || !expr.raw || !expr.raw.trim()) return;
 
     let raw = expr.raw.trim();
-
     if (parseTextTool(raw)) return;
 
-    if (/\bi\b/.test(raw) && !raw.includes('integral') && !raw.includes('∫')) {
-      return;
-    }
-    
+    if (/\bi\b/.test(raw) && !raw.includes('integral') && !raw.includes('∫')) return;
+
     const funcMatch = raw.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*x\s*\)\s*=\s*(.*)$/);
-    if (funcMatch) {
-      raw = funcMatch[2].trim();
-    }
+    if (funcMatch) raw = funcMatch[2].trim();
 
     const processed = substituteVariablesAndFunctions(expandEulerFormulas(preprocessKeywords(raw)));
+
+    if (processed.startsWith('list{')) {
+      drawList(processed, expr.color, bounds);
+      return;
+    }
 
     const defIntegralMatch = processed.match(/^(?:integral|∫)\s*\(\s*(.+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
     if (defIntegralMatch) {
@@ -710,16 +741,35 @@ export function drawExpressions() {
       return;
     }
 
-    if (processed.includes('vector') || processed.includes('list') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×') || processed.includes('+')) {
+    if (processed.includes('vector') || processed.includes('∪') || processed.includes('∩') || processed.includes('·') || processed.includes('×')) {
       const res = evaluateVectorOrListExpr(processed);
       if (res && res.type === 'vector') renderVector(res.value[0], res.value[1] || 0, expr.color, bounds);
       return;
     }
 
     if (processed.includes('=')) {
+      const isSimpleLinear = /^[0-9xX\s\+\-\*\/\=]+$/.test(processed) && !processed.includes('y');
+      if (isSimpleLinear) {
+        try {
+          const solved = solveLinearEquation(processed);
+          if (typeof solved.value === 'number') {
+            drawVerticalLine(solved.value, expr.color, bounds);
+            return;
+          }
+        } catch (e) {}
+      }
+
       const parts = processed.split('=');
       const lhs = parts[0].trim();
       const rhs = parts[1].trim();
+
+      if (lhs === 'y' && !rhs.includes('y') && !rhs.includes('x')) {
+        try {
+          const yVal = math.evaluate(rhs);
+          drawHorizontalLine(yVal, expr.color, bounds);
+          return;
+        } catch(e){}
+      }
 
       if (lhs === 'y') { drawExplicitFunction(rhs, expr.color, bounds); return; }
       if (lhs !== 'x' && !lhs.includes('(')) {
@@ -730,6 +780,64 @@ export function drawExpressions() {
 
     drawExplicitFunction(processed, expr.color, bounds);
   });
+}
+
+function drawList(exprStr, color, bounds) {
+  const match = exprStr.match(/list\{\s*(.*)\s*\}/);
+  if (!match) return;
+
+  try {
+    const items = match[1].split(',').map(item => math.evaluate(substituteVariablesAndFunctions(item.trim())));
+    const { minX, maxX, minY, maxY } = bounds;
+    const w = canvas2d.width, h = canvas2d.height;
+    const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+    const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+
+    ctx2d.save();
+    ctx2d.fillStyle = color;
+
+    items.forEach((val) => {
+      const cx = toCanvasX(val);
+      const cy = toCanvasY(0);
+      ctx2d.beginPath();
+      ctx2d.arc(cx, cy, 6, 0, 2 * Math.PI);
+      ctx2d.fill();
+    });
+
+    ctx2d.restore();
+  } catch(e){}
+}
+
+function drawHorizontalLine(yVal, color, bounds) {
+  const { minY, maxY } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasY = (wy) => h - (((wy - minY) / (maxY - minY)) * h);
+
+  const canvasY = toCanvasY(yVal);
+  ctx2d.save();
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth = 2.5;
+  ctx2d.beginPath();
+  ctx2d.moveTo(0, canvasY);
+  ctx2d.lineTo(w, canvasY);
+  ctx2d.stroke();
+  ctx2d.restore();
+}
+
+function drawVerticalLine(xVal, color, bounds) {
+  const { minX, maxX } = bounds;
+  const w = canvas2d.width, h = canvas2d.height;
+  const toCanvasX = (wx) => ((wx - minX) / (maxX - minX)) * w;
+
+  const canvasX = toCanvasX(xVal);
+  ctx2d.save();
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth = 2.5;
+  ctx2d.beginPath();
+  ctx2d.moveTo(canvasX, 0);
+  ctx2d.lineTo(canvasX, h);
+  ctx2d.stroke();
+  ctx2d.restore();
 }
 
 export function drawComplexPoints() {
@@ -878,24 +986,45 @@ function renderVector(vx, vy, color, bounds) {
   ctx2d.restore();
 }
 
-function drawExplicitFunction(expressionStr, color, bounds) {
+function drawExplicitFunction(rawStr, color, bounds) {
   const { minX, maxX, minY, maxY } = bounds;
   const w = canvas2d.width, h = canvas2d.height;
+
+  let expressionStr = rawStr.replace(/y\s*=\s*/, '').trim();
+  let minDomain = -Infinity, maxDomain = Infinity;
+
+  if (expressionStr.includes(',')) {
+    const parts = expressionStr.split(',');
+    expressionStr = parts[0].trim();
+    const rangeMatch = parts[1].trim().match(/(-?[\d\.\*pi]+)\s*<\s*x\s*<\s*(-?[\d\.\*pi]+)/);
+    if (rangeMatch) {
+      try {
+        minDomain = math.evaluate(rangeMatch[1]);
+        maxDomain = math.evaluate(rangeMatch[2]);
+      } catch(e){}
+    }
+  }
 
   ctx2d.beginPath();
   ctx2d.strokeStyle = color;
   ctx2d.lineWidth = 2.5;
 
-  const steps = 600;
+  const steps = w < 600 ? 400 : 800;
   let first = true;
 
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const xWorld = minX + t * (maxX - minX);
 
+    if (xWorld < minDomain || xWorld > maxDomain) { first = true; continue; }
+
     let yWorld;
     try {
-      yWorld = math.evaluate(expressionStr, { x: xWorld });
+      if (expressionStr.includes('d/dx')) {
+        yWorld = evaluateDerivative(expressionStr, xWorld);
+      } else {
+        yWorld = math.evaluate(expressionStr, { x: xWorld });
+      }
       if (!isFinite(yWorld) || isNaN(yWorld)) { first = true; continue; }
     } catch (e) { first = true; continue; }
 
@@ -908,13 +1037,23 @@ function drawExplicitFunction(expressionStr, color, bounds) {
   ctx2d.stroke();
 }
 
+function evaluateDerivative(exprStr, xVal) {
+  const match = exprStr.match(/d\/dx\s*\((.*)\)/);
+  if (!match) return NaN;
+  const inner = match[1];
+  const h = 0.0001;
+  const y1 = math.evaluate(inner, { x: xVal + h });
+  const y2 = math.evaluate(inner, { x: xVal - h });
+  return (y1 - y2) / (2 * h);
+}
+
 function drawImplicitEquation(lhsStr, rhsStr, color, bounds) {
   const { minX, maxX, minY, maxY } = bounds;
   const w = canvas2d.width, h = canvas2d.height;
 
   try {
     const exprCompiled = math.parse(`(${lhsStr}) - (${rhsStr})`).compile();
-    const cols = 50, rows = 50;
+    const cols = 60, rows = 60;
     const dx = (maxX - minX) / cols, dy = (maxY - minY) / rows;
 
     const field = new Float32Array((cols + 1) * (rows + 1));
